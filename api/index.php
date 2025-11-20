@@ -2,6 +2,7 @@
 
 // Configure writable directories for Vercel serverless environment
 $_ENV['APP_STORAGE'] = '/tmp/storage';
+$_ENV['APP_CACHE'] = '/tmp/bootstrap/cache';
 $_ENV['VIEW_COMPILED_PATH'] = '/tmp/storage/framework/views';
 
 // Create necessary directories in /tmp
