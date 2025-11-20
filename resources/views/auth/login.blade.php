@@ -43,5 +43,24 @@
         </div>
     </div>
 
+    <!-- Loader Overlay -->
+    <div id="loader" class="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 hidden flex-col items-center justify-center">
+        <div class="relative w-24 h-24 mb-4">
+            <div class="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-yellow-400 rounded-full border-t-transparent animate-spin"></div>
+            <img src="/logo.png" alt="Logo" class="absolute inset-0 w-12 h-12 m-auto animate-pulse">
+        </div>
+        <h2 class="text-xl font-bold text-slate-800 animate-pulse">Autenticando...</h2>
+    </div>
+
+    <script>
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const loader = document.getElementById('loader');
+            loader.classList.remove('hidden');
+            loader.classList.add('flex');
+            // Form will submit naturally after this
+        });
+    </script>
+
 </body>
 </html>

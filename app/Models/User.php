@@ -2,43 +2,95 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasFactory, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
+    protected $table = 'usuarios';
+
     protected $fillable = [
-        'name',
+        'empresa',
+        'login',
+        'nome',
         'email',
-        'password',
+        'celular',
+        'senha',
+        'status',
+        'nivel',
+        'hierarquia',
+        'empresa_id',
+        'vencimento',
+        'preco',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
-        'password',
-        'remember_token',
+        'senha',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
-        'email_verified_at' => 'datetime',
+        'vencimento' => 'datetime',
+        'criacao' => 'datetime',
+        'atualizacao' => 'datetime',
+        'ultimo_log' => 'datetime',
     ];
+
+    public function getAuthPassword()
+    {
+        return $this->senha;
+    }
+
+    public function getAuthIdentifierName()
+    {
+        return 'login';
+    }
+    
+    // Map Laravel's expected timestamps to the table's columns
+    const CREATED_AT = 'criacao';
+    const UPDATED_AT = 'atualizacao';
+
+    /**
+     * Get the hierarquia associated with the user.
+     */
+    public function hierarquia()
+    {
+        return $this->belongsTo(Hierarquia::class, 'hierarquia', 'id');
+    }
+
+    /**
+     * Get the empresa associated with the user.
+     */
+    public function empresa()
+    {
+        return $this->belongsTo(Empresa::class, 'empresa_id', 'id');
+    }
+
+    /**
+     * Check if user is admin (hierarquia = 1).
+     */
+    public function isAdmin()
+    {
+        return $this->hierarquia == 1;
+    }
+
+    /**
+     * Check if user can view all companies' data.
+     */
+    public function canViewAllCompanies()
+    {
+        return $this->isAdmin();
+    }
+
+    /**
+     * Get the company ID filter for queries.
+     * Returns null for admins (no filter), empresa_id for regular users.
+     */
+    public function getCompanyFilter()
+    {
+        return $this->isAdmin() ? null : $this->empresa_id;
+    }
 }

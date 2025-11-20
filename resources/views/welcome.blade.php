@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,11 +19,12 @@
             -webkit-text-fill-color: transparent;
         }
     </style>
+    </style>
 </head>
 <body class="bg-white text-slate-900 overflow-x-hidden">
 
     <!-- Navbar -->
-    <nav class="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
+    <nav class="fixed w-full bg-white/80 backdrop-blur-md z-50 border-b border-slate-100">
         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center gap-2">
                 <img src="/logo.png" alt="Luminaris AI Logo" class="h-10 w-auto">
@@ -65,36 +66,88 @@
     <section id="features" class="py-24 bg-slate-50">
         <div class="max-w-7xl mx-auto px-6">
             <h2 class="text-3xl md:text-4xl font-bold text-center mb-16 text-slate-900">Nossas Tecnologias</h2>
-            <div class="grid md:grid-cols-3 gap-8">
-                <!-- Card 1 -->
-                <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 hover:shadow-xl hover:border-yellow-400 transition-all group">
-                    <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            <div class="p-8 rounded-2xl bg-white border border-slate-100 shadow-xl shadow-slate-200/50 hover:-translate-y-1 transition-transform">
+                <div class="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center mb-6 text-2xl">🚀</div>
+                <h3 class="text-xl font-bold mb-3 text-slate-900">Automação Total</h3>
+                <p class="text-slate-600">Integre CRM, WhatsApp e e-mail em fluxos de trabalho contínuos que rodam 24/7.</p>
+            </div>
+            <div class="p-8 rounded-2xl bg-white border border-slate-100 shadow-xl shadow-slate-200/50 hover:-translate-y-1 transition-transform">
+                <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-6 text-2xl">🧠</div>
+                <h3 class="text-xl font-bold mb-3 text-slate-900">IA Generativa</h3>
+                <p class="text-slate-600">Use o poder do GPT-4 para analisar dados, gerar relatórios e atender clientes.</p>
+            </div>
+            <div class="p-8 rounded-2xl bg-white border border-slate-100 shadow-xl shadow-slate-200/50 hover:-translate-y-1 transition-transform">
+                <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-6 text-2xl">🔒</div>
+                <h3 class="text-xl font-bold mb-3 text-slate-900">Segurança Enterprise</h3>
+                <p class="text-slate-600">Seus dados protegidos com criptografia de ponta a ponta e conformidade total.</p>
+            </div>
+        </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="py-24 bg-white relative overflow-hidden">
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-yellow-50 via-white to-white"></div>
+        <div class="max-w-4xl mx-auto px-6 relative z-10">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Vamos Conversar?</h2>
+                <p class="text-lg text-slate-600">Entre em contato para transformarmos seu negócio com automação inteligente.</p>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-xl border border-slate-100 p-8 md:p-12">
+                <form id="whatsappForm" class="space-y-6">
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="name" class="block text-sm font-medium text-slate-700 mb-2">Nome</label>
+                            <input type="text" id="name" required class="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none transition-all" placeholder="Seu nome">
+                        </div>
+                        <div>
+                            <label for="company" class="block text-sm font-medium text-slate-700 mb-2">Empresa (Opcional)</label>
+                            <input type="text" id="company" class="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none transition-all" placeholder="Nome da sua empresa">
+                        </div>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-slate-900">Automação com n8n</h3>
-                    <p class="text-slate-600">Fluxos de trabalho complexos automatizados entre centenas de aplicativos sem esforço manual.</p>
-                </div>
-                <!-- Card 2 -->
-                <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 hover:shadow-xl hover:border-yellow-400 transition-all group">
-                    <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                    <div>
+                        <label for="message" class="block text-sm font-medium text-slate-700 mb-2">Mensagem</label>
+                        <textarea id="message" rows="4" required class="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none transition-all" placeholder="Como podemos ajudar?"></textarea>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-slate-900">IA Generativa</h3>
-                    <p class="text-slate-600">Implementação de GPT-4 e Gemini para análise de dados, atendimento e criação de conteúdo.</p>
-                </div>
-                <!-- Card 3 -->
-                <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 hover:shadow-xl hover:border-yellow-400 transition-all group">
-                    <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                    
+                    <div class="flex flex-col md:flex-row gap-4 pt-4">
+                        <button type="submit" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-xl shadow-lg shadow-green-500/20 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-2">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+                            Enviar Mensagem
+                        </button>
+                        
+                        <a href="https://wa.me/5511980733602?text=Ol%C3%A1%20Andr%C3%A9%20tudo%20bem%20?%20Queria%20fazer%20um%20or%C3%A7amento" target="_blank" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-8 rounded-xl shadow-lg shadow-slate-900/20 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-2 text-center">
+                            <span>Orçamento Rápido</span>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path></svg>
+                        </a>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-slate-900">SQL Server</h3>
-                    <p class="text-slate-600">Bancos de dados robustos e seguros para armazenar e processar o core do seu negócio.</p>
-                </div>
+                </form>
             </div>
         </div>
     </section>
 
-    <footer class="py-8 text-center text-slate-500 text-sm border-t border-slate-200 bg-white">
+    <script>
+        document.getElementById('whatsappForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            const company = document.getElementById('company').value;
+            const message = document.getElementById('message').value;
+            
+            let text = `*Novo Contato via Site*\n\n`;
+            text += `*Nome:* ${name}\n`;
+            if(company) text += `*Empresa:* ${company}\n`;
+            text += `*Mensagem:* ${message}`;
+            
+            const encodedText = encodeURIComponent(text);
+            window.open(`https://wa.me/5511980733602?text=${encodedText}`, '_blank');
+        });
+    </script>
+
+    <!-- Footer -->
+    <footer class="bg-slate-50 py-12 text-center text-slate-500 text-sm">
         &copy; 2024 Luminaris AI. Todos os direitos reservados.
     </footer>
 
