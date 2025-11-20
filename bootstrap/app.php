@@ -16,9 +16,10 @@ $app = new Illuminate\Foundation\Application(
     $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
 );
 
-// Override cache paths for Vercel serverless environment
-$app->useStoragePath($_ENV['APP_STORAGE'] ?? $app->storagePath());
-$app->useCachePath($_ENV['APP_CACHE'] ?? $app->basePath('bootstrap/cache'));
+// Override storage path for Vercel serverless environment
+if (isset($_ENV['APP_STORAGE'])) {
+    $app->useStoragePath($_ENV['APP_STORAGE']);
+}
 
 
 /*
