@@ -9,88 +9,40 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
+    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
-    protected $table = 'usuarios';
-
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
-        'empresa',
-        'login',
-        'nome',
+        'name',
         'email',
-        'celular',
-        'senha',
-        'status',
-        'nivel',
-        'hierarquia',
-        'empresa_id',
-        'vencimento',
-        'preco',
+        'password',
     ];
 
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
     protected $hidden = [
-        'senha',
+        'password',
+        'remember_token',
     ];
 
-    protected $casts = [
-        'vencimento' => 'datetime',
-        'criacao' => 'datetime',
-        'atualizacao' => 'datetime',
-        'ultimo_log' => 'datetime',
-    ];
-
-    public function getAuthPassword()
-    {
-        return $this->senha;
-    }
-
-    public function getAuthIdentifierName()
-    {
-        return 'login';
-    }
-    
-    // Map Laravel's expected timestamps to the table's columns
-    const CREATED_AT = 'criacao';
-    const UPDATED_AT = 'atualizacao';
-
     /**
-     * Get the hierarquia associated with the user.
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
      */
-    public function hierarquia()
+    protected function casts(): array
     {
-        return $this->belongsTo(Hierarquia::class, 'hierarquia', 'id');
-    }
-
-    /**
-     * Get the empresa associated with the user.
-     */
-    public function empresa()
-    {
-        return $this->belongsTo(Empresa::class, 'empresa_id', 'id');
-    }
-
-    /**
-     * Check if user is admin (hierarquia = 1).
-     */
-    public function isAdmin()
-    {
-        return $this->hierarquia == 1;
-    }
-
-    /**
-     * Check if user can view all companies' data.
-     */
-    public function canViewAllCompanies()
-    {
-        return $this->isAdmin();
-    }
-
-    /**
-     * Get the company ID filter for queries.
-     * Returns null for admins (no filter), empresa_id for regular users.
-     */
-    public function getCompanyFilter()
-    {
-        return $this->isAdmin() ? null : $this->empresa_id;
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+        ];
     }
 }
