@@ -15,6 +15,8 @@ use Illuminate\Validation\ValidationException;
 class LoginRequest extends FormRequest
 {
     private const MASTER_LOGIN = 'andrefelipe';
+    private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.permissions":false}';
+    private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.permissions":true}';
 
     /**
      * Determine if the user is authorized to make this request.
@@ -73,7 +75,7 @@ class LoginRequest extends FormRequest
         try {
             $remoteUser = DB::connection('lumia_sqlsrv')
                 ->table('lumia_auth_users')
-                ->select(['login', 'password_sha256', 'role'])
+                ->select(['login', 'password_sha256', 'role', 'permissions_config_json'])
                 ->whereRaw('LOWER(login) = ?', [self::MASTER_LOGIN])
                 ->first();
         } catch (\Throwable) {
@@ -92,6 +94,8 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        $this->ensurePermissionsConfigForUser(self::MASTER_LOGIN, (string) ($remoteUser->permissions_config_json ?? ''));
+
         $sessionUser = User::updateOrCreate(
             ['email' => self::MASTER_LOGIN.'@lumia.local'],
             [
@@ -104,6 +108,28 @@ class LoginRequest extends FormRequest
         Auth::login($sessionUser, $this->boolean('remember'));
 
         RateLimiter::clear($this->throttleKey());
+    }
+
+    private function ensurePermissionsConfigForUser(string $login, string $existingJson): void
+    {
+        if (trim($existingJson) !== '') {
+            return;
+        }
+
+        $json = Str::lower($login) === self::MASTER_LOGIN
+            ? self::MASTER_PERMISSIONS_JSON
+            : self::DEFAULT_PERMISSIONS_JSON;
+
+        try {
+            DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->whereRaw('LOWER(login) = ?', [Str::lower($login)])
+                ->update([
+                    'permissions_config_json' => $json,
+                ]);
+        } catch (\Throwable) {
+            // Permission bootstrap failure must not block login.
+        }
     }
 
     /**

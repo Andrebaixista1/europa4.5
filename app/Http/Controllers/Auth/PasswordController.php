@@ -7,7 +7,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 class PasswordController extends Controller
@@ -19,13 +18,18 @@ class PasswordController extends Controller
     {
         $validated = $request->validateWithBag('updatePassword', [
             'current_password' => ['required', 'string'],
-            'password' => ['required', Password::defaults(), 'confirmed'],
+            'password' => ['required', 'string', 'min:6', 'confirmed'],
+        ], [
+            'current_password.required' => 'Informe a senha atual.',
+            'password.required' => 'Informe a nova senha.',
+            'password.min' => 'A nova senha deve ter no minimo 6 caracteres.',
+            'password.confirmed' => 'A confirmacao da senha nao confere.',
         ]);
 
         $login = Str::lower(trim((string) $request->user()?->name));
         if ($login === '') {
             $exception = ValidationException::withMessages([
-                'current_password' => __('auth.failed'),
+                'current_password' => 'Falha de autenticacao do usuario atual.',
             ]);
             $exception->errorBag = 'updatePassword';
             throw $exception;
@@ -34,12 +38,12 @@ class PasswordController extends Controller
         try {
             $remoteUser = DB::connection('lumia_sqlsrv')
                 ->table('lumia_auth_users')
-                ->select(['login', 'password_sha256'])
+                ->select(['id', 'login', 'password_sha256'])
                 ->whereRaw('LOWER(login) = ?', [$login])
                 ->first();
         } catch (\Throwable) {
             $exception = ValidationException::withMessages([
-                'current_password' => __('auth.failed'),
+                'current_password' => 'Nao foi possivel validar a senha atual no servidor.',
             ]);
             $exception->errorBag = 'updatePassword';
             throw $exception;
@@ -48,22 +52,43 @@ class PasswordController extends Controller
         $currentPasswordSha256 = hash('sha256', (string) $validated['current_password']);
         if (! $remoteUser || ! hash_equals((string) $remoteUser->password_sha256, $currentPasswordSha256)) {
             $exception = ValidationException::withMessages([
-                'current_password' => __('auth.password'),
+                'current_password' => 'A senha atual esta incorreta.',
             ]);
             $exception->errorBag = 'updatePassword';
             throw $exception;
         }
 
+        $newPasswordSha256 = hash('sha256', (string) $validated['password']);
+        $updatedRows = 0;
+
         try {
-            DB::connection('lumia_sqlsrv')
+            $updatedRows = DB::connection('lumia_sqlsrv')
                 ->table('lumia_auth_users')
-                ->whereRaw('LOWER(login) = ?', [$login])
+                ->where('id', (int) $remoteUser->id)
                 ->update([
-                    'password_sha256' => hash('sha256', (string) $validated['password']),
+                    'password_sha256' => $newPasswordSha256,
+                    'updated_at' => now(),
                 ]);
         } catch (\Throwable) {
+            try {
+                $updatedRows = DB::connection('lumia_sqlsrv')
+                    ->table('lumia_auth_users')
+                    ->where('id', (int) $remoteUser->id)
+                    ->update([
+                        'password_sha256' => $newPasswordSha256,
+                    ]);
+            } catch (\Throwable) {
+                $exception = ValidationException::withMessages([
+                    'password' => 'Nao foi possivel atualizar a senha no servidor.',
+                ]);
+                $exception->errorBag = 'updatePassword';
+                throw $exception;
+            }
+        }
+
+        if ($updatedRows === 0 && ! hash_equals((string) $remoteUser->password_sha256, $newPasswordSha256)) {
             $exception = ValidationException::withMessages([
-                'password' => __('auth.failed'),
+                'password' => 'A senha nao foi atualizada. Tente novamente.',
             ]);
             $exception->errorBag = 'updatePassword';
             throw $exception;

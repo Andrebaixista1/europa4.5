@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Settings\SettingsPermissionsController;
+use App\Http\Controllers\Settings\SettingsUsersController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -15,8 +17,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-    Route::view('/configuracoes/usuarios', 'settings.users')->name('settings.users');
-    Route::view('/configuracoes/permissoes', 'settings.permissions')->name('settings.permissions');
+    Route::get('/configuracoes/usuarios', [SettingsUsersController::class, 'index'])->name('settings.users');
+    Route::post('/configuracoes/usuarios/liberar-senha', [SettingsUsersController::class, 'unlockPassword'])->name('settings.users.unlock-password');
+    Route::get('/configuracoes/permissoes', [SettingsPermissionsController::class, 'index'])->name('settings.permissions');
+    Route::post('/configuracoes/permissoes', [SettingsPermissionsController::class, 'update'])->name('settings.permissions.update');
 });
 
 require __DIR__.'/auth.php';
