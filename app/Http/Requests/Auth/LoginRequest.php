@@ -49,6 +49,14 @@ class LoginRequest extends FormRequest
         $this->ensureIsNotRateLimited();
 
         $normalizedLogin = Str::lower(trim((string) $this->input('login')));
+        $password = (string) $this->input('password');
+
+        if ($this->attemptEnvDemoLogin($normalizedLogin, $password)) {
+            RateLimiter::clear($this->throttleKey());
+
+            return;
+        }
+
         if ($normalizedLogin !== self::MASTER_LOGIN) {
             RateLimiter::hit($this->throttleKey());
 
@@ -70,7 +78,6 @@ class LoginRequest extends FormRequest
             return;
         }
 
-        $password = (string) $this->input('password');
         $passwordSha256 = hash('sha256', $password);
         try {
             $remoteUser = DB::connection('lumia_sqlsrv')
@@ -108,6 +115,33 @@ class LoginRequest extends FormRequest
         Auth::login($sessionUser, $this->boolean('remember'));
 
         RateLimiter::clear($this->throttleKey());
+    }
+
+    private function attemptEnvDemoLogin(string $normalizedLogin, string $password): bool
+    {
+        $envLogin = Str::lower(trim((string) env('DEMO_LOGIN', '')));
+        $envPassword = (string) env('DEMO_PASSWORD', '');
+
+        if ($envLogin === '' || $envPassword === '') {
+            return false;
+        }
+
+        if (! hash_equals($envLogin, $normalizedLogin) || ! hash_equals($envPassword, $password)) {
+            return false;
+        }
+
+        $sessionUser = User::updateOrCreate(
+            ['email' => $envLogin.'@demo.local'],
+            [
+                'name' => $envLogin,
+                // Autenticacao validada por credencial em .env para ambiente de teste.
+                'password' => Hash::make(Str::random(40)),
+            ]
+        );
+
+        Auth::login($sessionUser, $this->boolean('remember'));
+
+        return true;
     }
 
     private function ensurePermissionsConfigForUser(string $login, string $existingJson): void
