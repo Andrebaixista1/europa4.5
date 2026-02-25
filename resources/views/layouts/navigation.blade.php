@@ -7,7 +7,7 @@
                 <div class="shrink-0 flex items-center">
                     <a href="{{ route('dashboard') }}" class="inline-flex items-center gap-2">
                         <x-application-logo class="block h-10 w-10" />
-                        <span class="text-sm font-semibold text-slate-800">Lumi.A</span>
+                        <span class="text-sm font-semibold text-slate-800">Europa 4.5</span>
                     </a>
                 </div>
 

@@ -71,3 +71,5 @@ php artisan test
 
 - A autenticação não usa a senha local do usuário Laravel para validar login.
 - A validação é feita contra `lumia_auth_users.password_sha256`.
+
+# europa4.5

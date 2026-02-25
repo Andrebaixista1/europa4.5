@@ -38,9 +38,10 @@
                     <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"></path>
                 </svg>
             </button>
-            <div>
-                <a href="/">
+            <div class="flex flex-col items-center">
+                <a href="/" class="flex flex-col items-center">
                     <x-application-logo class="w-28 h-28" />
+                    <span class="mt-3 text-lg font-semibold text-slate-800 dark:text-slate-100">Europa 4.5</span>
                 </a>
             </div>
 
