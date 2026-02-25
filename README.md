@@ -1,6 +1,17 @@
-﻿# Lumi.A (luminarisai-v2)
+﻿# Europa 4.5
 
-Aplicação web em Laravel com interface Blade + Tailwind, autenticação customizada e integração com banco externo `lumia`.
+Base Laravel (clone visual do `luminarisai-v2`) adaptada para o projeto **Europa 4.5**.
+
+## Status atual
+
+- Branding atualizado para `Europa 4.5` (logo + titulos).
+- Tema ajustado para acento azul `#007AFF` (claro/escuro).
+- Navegacao de `Configuracoes` removida do menu.
+- Login em PT-BR.
+- Perfil (`/profile`) salvando no SQL Server real (`europa45.dbo.users`).
+- Login local compativel com:
+  - usuarios reais na tabela `users` (senha `bcrypt`)
+  - credenciais demo por `.env` (para testes)
 
 ## Stack
 
@@ -8,68 +19,84 @@ Aplicação web em Laravel com interface Blade + Tailwind, autenticação custom
 - Laravel 12
 - Blade + Tailwind CSS
 - Vite
-- SQL Server (conexão externa `lumia_sqlsrv`)
+- SQL Server (`sqlsrv` / `pdo_sqlsrv`)
 
-## Funcionalidades atuais
+## Requisitos locais (Windows/WAMP)
 
-- Login customizado com validação de senha em `SHA-256` na tabela externa `lumia_auth_users`.
-- Alteração de senha funcional, persistindo `password_sha256` no mesmo banco externo.
-- Layout com tema claro/escuro.
-- Navegação principal com menu:
-  - Painel
-  - Configurações
-    - Usuários
-    - Permissões
-- Área de perfil traduzida para PT-BR.
+- PHP 8.2 (WAMP)
+- Extensoes PHP:
+  - `pdo_sqlsrv`
+  - `sqlsrv`
+- ODBC Driver 17 ou 18 for SQL Server
 
-## Configuração local
+## Configuracao local
 
-1. Instale dependências PHP:
+1. Instalar dependencias:
 
 ```bash
 composer install
-```
-
-2. Instale dependências front-end:
-
-```bash
 npm install
 ```
 
-3. Copie o arquivo de ambiente e gere a chave:
+2. Preparar ambiente:
 
 ```bash
-cp .env.example .env
+copy .env.example .env
 php artisan key:generate
 ```
 
-4. Ajuste as variáveis de conexão externa no `.env`:
+3. Configurar banco SQL Server no `.env` (exemplo):
 
 ```env
-LUMIA_DB_CONNECTION=sqlsrv
-LUMIA_DB_HOST=SEU_HOST
-LUMIA_DB_PORT=1433
-LUMIA_DB_DATABASE=lumia
-LUMIA_DB_USERNAME=SEU_USUARIO
-LUMIA_DB_PASSWORD=SUA_SENHA
+DB_CONNECTION=sqlsrv
+DB_HOST=177.153.62.236
+DB_PORT=1433
+DB_DATABASE=europa45
+DB_USERNAME=SEU_USUARIO
+DB_PASSWORD=SUA_SENHA
+DB_ENCRYPT=true
+DB_TRUST_SERVER_CERTIFICATE=true
+
+SESSION_DRIVER=file
+CACHE_STORE=file
+QUEUE_CONNECTION=sync
 ```
 
-5. Rode a aplicação:
+4. Compilar assets:
 
 ```bash
+npm run build
+```
+
+5. Rodar:
+
+```bash
+php artisan optimize:clear
 php artisan serve
-npm run dev
 ```
 
-## Testes
+## Login
 
-```bash
-php artisan test
+- O projeto pode autenticar com usuario real (`dbo.users`) usando:
+  - `login`
+  - `password` (`bcrypt`)
+- Tambem aceita logins demo via `.env` (para teste local), por exemplo:
+
+```env
+DEMO_LOGIN=admin
+DEMO_PASSWORD=admin
 ```
 
-## Observações
+## Banco `europa45` (RBAC)
 
-- A autenticação não usa a senha local do usuário Laravel para validar login.
-- A validação é feita contra `lumia_auth_users.password_sha256`.
+Scripts incluidos:
 
-# europa4.5
+- `database/sql/bootstrap_rbac_europa45.sql`
+  - cria tabelas de RBAC (`users`, `roles`, `permissions`, etc.) e seed inicial
+- `database/sql/patch_users_compat.sql`
+  - adiciona colunas de compatibilidade do Laravel (`remember_token`, `email_verified_at`) em `dbo.users`
+
+## Observacoes
+
+- O model `User` foi adaptado para o schema real (`nome`, `login`, `email`, `password`, `equipe_id`, `role_id`, `ativo`).
+- O campo exibido como `name` no Laravel e mapeado para `nome` na tabela SQL Server.

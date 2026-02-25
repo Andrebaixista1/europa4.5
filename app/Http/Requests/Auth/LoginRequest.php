@@ -51,6 +51,12 @@ class LoginRequest extends FormRequest
         $normalizedLogin = Str::lower(trim((string) $this->input('login')));
         $password = (string) $this->input('password');
 
+        if ($this->attemptRealDatabaseLogin($normalizedLogin, $password)) {
+            RateLimiter::clear($this->throttleKey());
+
+            return;
+        }
+
         if ($this->attemptEnvDemoLogin($normalizedLogin, $password)) {
             RateLimiter::clear($this->throttleKey());
 
@@ -117,31 +123,96 @@ class LoginRequest extends FormRequest
         RateLimiter::clear($this->throttleKey());
     }
 
-    private function attemptEnvDemoLogin(string $normalizedLogin, string $password): bool
+    private function attemptRealDatabaseLogin(string $normalizedLogin, string $password): bool
     {
-        $envLogin = Str::lower(trim((string) env('DEMO_LOGIN', '')));
-        $envPassword = (string) env('DEMO_PASSWORD', '');
-
-        if ($envLogin === '' || $envPassword === '') {
+        try {
+            /** @var User|null $user */
+            $user = User::query()
+                ->whereRaw('LOWER(login) = ?', [$normalizedLogin])
+                ->first();
+        } catch (\Throwable) {
             return false;
         }
 
-        if (! hash_equals($envLogin, $normalizedLogin) || ! hash_equals($envPassword, $password)) {
+        if (! $user) {
             return false;
         }
 
-        $sessionUser = User::updateOrCreate(
-            ['email' => $envLogin.'@demo.local'],
-            [
-                'name' => $envLogin,
-                // Autenticacao validada por credencial em .env para ambiente de teste.
-                'password' => Hash::make(Str::random(40)),
-            ]
-        );
+        if (isset($user->ativo) && (int) $user->ativo !== 1) {
+            return false;
+        }
 
-        Auth::login($sessionUser, $this->boolean('remember'));
+        $storedHash = (string) ($user->password ?? '');
+        if ($storedHash === '' || ! Hash::check($password, $storedHash)) {
+            return false;
+        }
+
+        try {
+            $user->last_login_at = now();
+            $user->save();
+        } catch (\Throwable) {
+            // Last-login update must not block authentication.
+        }
+
+        Auth::login($user, $this->boolean('remember'));
 
         return true;
+    }
+
+    private function attemptEnvDemoLogin(string $normalizedLogin, string $password): bool
+    {
+        $credentialPairs = [
+            [env('DEMO_LOGIN', ''), env('DEMO_PASSWORD', '')],
+            [env('DEMO_LOGIN_2', ''), env('DEMO_PASSWORD_2', '')],
+            [env('DEMO_LOGIN_3', ''), env('DEMO_PASSWORD_3', '')],
+        ];
+
+        foreach ($credentialPairs as [$envLoginRaw, $envPasswordRaw]) {
+            $envLogin = Str::lower(trim((string) $envLoginRaw));
+            $envPassword = (string) $envPasswordRaw;
+
+            if ($envLogin === '' || $envPassword === '') {
+                continue;
+            }
+
+            if (! hash_equals($envLogin, $normalizedLogin)) {
+                continue;
+            }
+
+            $sessionUser = User::query()
+                ->whereRaw('LOWER(login) = ?', [$envLogin])
+                ->orWhere('email', $envLogin.'@demo.local')
+                ->first() ?? new User();
+            $matchesLocalHash = $sessionUser->exists
+                && is_string($sessionUser->password ?? null)
+                && $sessionUser->password !== ''
+                && Hash::check($password, (string) $sessionUser->password);
+            $matchesEnv = hash_equals($envPassword, $password);
+
+            if (! $matchesLocalHash && ! $matchesEnv) {
+                continue;
+            }
+
+            $sessionUser->name = $envLogin;
+            $sessionUser->login = $sessionUser->login ?: $envLogin;
+            $sessionUser->email = $sessionUser->email ?: ($envLogin.'@demo.local');
+            $sessionUser->equipe_id = $sessionUser->equipe_id ?: 1;
+            $sessionUser->role_id = $sessionUser->role_id ?: (Str::lower($envLogin) === self::MASTER_LOGIN ? 1 : 3);
+            $sessionUser->ativo = $sessionUser->ativo ?? 1;
+
+            // Mantem a senha local caso ela ja tenha sido alterada pelo usuario.
+            if (! $sessionUser->exists || empty($sessionUser->password)) {
+                $sessionUser->password = $password;
+            }
+
+            $sessionUser->save();
+
+            Auth::login($sessionUser, $this->boolean('remember'));
+
+            return true;
+        }
+
+        return false;
     }
 
     private function ensurePermissionsConfigForUser(string $login, string $existingJson): void
