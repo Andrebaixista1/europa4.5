@@ -5,12 +5,14 @@ declare(strict_types=1);
 if (getenv('VERCEL') !== false) {
     $tmpStoragePath = '/tmp/storage';
     $viewCompiledPath = $tmpStoragePath.'/framework/views';
+    $tmpBootstrapCachePath = '/tmp/bootstrap/cache';
     $runtimeDirs = [
         $tmpStoragePath.'/framework/cache/data',
         $tmpStoragePath.'/framework/sessions',
         $tmpStoragePath.'/framework/views',
         $tmpStoragePath.'/framework/testing',
         $tmpStoragePath.'/logs',
+        $tmpBootstrapCachePath,
     ];
 
     foreach ($runtimeDirs as $dir) {
@@ -26,6 +28,20 @@ if (getenv('VERCEL') !== false) {
     putenv('VIEW_COMPILED_PATH='.$viewCompiledPath);
     $_ENV['VIEW_COMPILED_PATH'] = $viewCompiledPath;
     $_SERVER['VIEW_COMPILED_PATH'] = $viewCompiledPath;
+
+    $cacheEnv = [
+        'APP_PACKAGES_CACHE' => $tmpBootstrapCachePath.'/packages.php',
+        'APP_SERVICES_CACHE' => $tmpBootstrapCachePath.'/services.php',
+        'APP_CONFIG_CACHE' => $tmpBootstrapCachePath.'/config.php',
+        'APP_EVENTS_CACHE' => $tmpBootstrapCachePath.'/events.php',
+        'APP_ROUTES_CACHE' => $tmpBootstrapCachePath.'/routes.php',
+    ];
+
+    foreach ($cacheEnv as $envKey => $envValue) {
+        putenv($envKey.'='.$envValue);
+        $_ENV[$envKey] = $envValue;
+        $_SERVER[$envKey] = $envValue;
+    }
 }
 
 $publicPath = __DIR__.'/../public';
