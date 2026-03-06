@@ -8,6 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -133,19 +134,38 @@ class LoginRequest extends FormRequest
                 ->first();
         } catch (\Throwable $e) {
             report($e);
+            Log::error('Auth login DB query failed', [
+                'login' => $normalizedLogin,
+                'connection' => config('database.default'),
+                'database' => config('database.connections.'.config('database.default').'.database'),
+                'host' => config('database.connections.'.config('database.default').'.host'),
+            ]);
             return false;
         }
 
         if (! $user) {
+            Log::warning('Auth login user not found', [
+                'login' => $normalizedLogin,
+                'connection' => config('database.default'),
+                'database' => config('database.connections.'.config('database.default').'.database'),
+            ]);
             return false;
         }
 
         if (isset($user->ativo) && (int) $user->ativo !== 1) {
+            Log::warning('Auth login user inactive', [
+                'login' => $normalizedLogin,
+                'user_id' => $user->id,
+            ]);
             return false;
         }
 
         $storedHash = (string) ($user->password ?? '');
         if ($storedHash === '' || ! Hash::check($password, $storedHash)) {
+            Log::warning('Auth login password mismatch', [
+                'login' => $normalizedLogin,
+                'user_id' => $user->id,
+            ]);
             return false;
         }
 
@@ -157,6 +177,11 @@ class LoginRequest extends FormRequest
         }
 
         Auth::login($user, $this->boolean('remember'));
+
+        Log::info('Auth login success', [
+            'login' => $normalizedLogin,
+            'user_id' => $user->id,
+        ]);
 
         return true;
     }
