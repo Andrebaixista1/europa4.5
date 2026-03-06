@@ -19,6 +19,12 @@ class LoginRequest extends FormRequest
     private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.permissions":false}';
     private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.permissions":true}';
 
+    private function authDebug(string $event, array $context = []): void
+    {
+        $payload = array_merge(['event' => $event], $context);
+        error_log('AUTH_DEBUG '.json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -140,11 +146,22 @@ class LoginRequest extends FormRequest
                 'database' => config('database.connections.'.config('database.default').'.database'),
                 'host' => config('database.connections.'.config('database.default').'.host'),
             ]);
+            $this->authDebug('db_query_failed', [
+                'login' => $normalizedLogin,
+                'connection' => config('database.default'),
+                'database' => config('database.connections.'.config('database.default').'.database'),
+                'host' => config('database.connections.'.config('database.default').'.host'),
+            ]);
             return false;
         }
 
         if (! $user) {
             Log::warning('Auth login user not found', [
+                'login' => $normalizedLogin,
+                'connection' => config('database.default'),
+                'database' => config('database.connections.'.config('database.default').'.database'),
+            ]);
+            $this->authDebug('user_not_found', [
                 'login' => $normalizedLogin,
                 'connection' => config('database.default'),
                 'database' => config('database.connections.'.config('database.default').'.database'),
@@ -157,6 +174,10 @@ class LoginRequest extends FormRequest
                 'login' => $normalizedLogin,
                 'user_id' => $user->id,
             ]);
+            $this->authDebug('user_inactive', [
+                'login' => $normalizedLogin,
+                'user_id' => $user->id,
+            ]);
             return false;
         }
 
@@ -165,6 +186,11 @@ class LoginRequest extends FormRequest
             Log::warning('Auth login password mismatch', [
                 'login' => $normalizedLogin,
                 'user_id' => $user->id,
+            ]);
+            $this->authDebug('password_mismatch', [
+                'login' => $normalizedLogin,
+                'user_id' => $user->id,
+                'hash_prefix' => substr($storedHash, 0, 4),
             ]);
             return false;
         }
@@ -179,6 +205,10 @@ class LoginRequest extends FormRequest
         Auth::login($user, $this->boolean('remember'));
 
         Log::info('Auth login success', [
+            'login' => $normalizedLogin,
+            'user_id' => $user->id,
+        ]);
+        $this->authDebug('login_success', [
             'login' => $normalizedLogin,
             'user_id' => $user->id,
         ]);
