@@ -293,6 +293,17 @@
             border-color: #0080FF !important;
         }
 
+        html.theme-light .settings-action-btn.is-active,
+        html.theme-light .settings-action-btn.is-active * {
+            color: #ffffff !important;
+        }
+
+        html.theme-light .settings-action-btn.is-active .settings-page-counter,
+        html.theme-light .settings-action-btn.is-active .settings-member-level {
+            border-color: rgba(255, 255, 255, 0.65) !important;
+            color: #ffffff !important;
+        }
+
         .settings-card-title {
             margin-bottom: 0.5rem;
             font-size: 0.75rem;
@@ -1264,11 +1275,6 @@
                                                     <option :value="role.key" x-text="role.displayLabel"></option>
                                                 </template>
                                             </select>
-                                        </div>
-
-                                        <div class="settings-action-btn settings-user-action block w-full border border-gray-300 px-3 py-2 text-left text-sm font-medium text-gray-800 transition">
-                                            <span class="settings-user-team-label">V&iacute;nculo atual</span>
-                                            <span class="settings-member-level" x-text="`Equipe: ${activeUserTeamLabel()} | Hierarquia: ${activeUserRoleLabel()}`"></span>
                                         </div>
 
                                         <button
