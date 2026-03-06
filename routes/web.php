@@ -87,11 +87,41 @@ Route::middleware('auth')->group(function () {
         }
     };
 
+    $ensureSettingsPermissionsCatalog = static function (): void {
+        $requiredPermissions = [
+            [
+                'slug' => 'consulta_cliente.view',
+                'nome' => 'Ver',
+                'modulo' => 'consulta_cliente',
+            ],
+        ];
+
+        foreach ($requiredPermissions as $permission) {
+            DB::table('permissions')->updateOrInsert(
+                ['slug' => $permission['slug']],
+                [
+                    'nome' => $permission['nome'],
+                    'modulo' => $permission['modulo'],
+                ]
+            );
+        }
+    };
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::post('/configuracoes/permissoes/salvar', function (Request $request) {
+    Route::get('/consultas/cliente', function (Request $request) use ($authHasPermission) {
+        if (! $authHasPermission($request, 'consulta_cliente.view')) {
+            abort(403);
+        }
+
+        return view('consultas.cliente');
+    })->name('consultas.cliente');
+
+    Route::post('/configuracoes/permissoes/salvar', function (Request $request) use ($ensureSettingsPermissionsCatalog) {
+        $ensureSettingsPermissionsCatalog();
+
         $validated = $request->validate([
             'role_id' => ['required', 'integer', 'exists:roles,id'],
             'permissions' => ['required', 'array'],
@@ -670,7 +700,9 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.delete');
 
-    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope) {
+    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope, $ensureSettingsPermissionsCatalog) {
+        $ensureSettingsPermissionsCatalog();
+
         $users = collect();
         $dbUsers = [];
         $dbTeams = [];
@@ -970,6 +1002,29 @@ Route::middleware('auth')->group(function () {
                 }
             }
 
+            $consultasChildren = [];
+            foreach ([
+                'consulta_cliente' => 'Consulta Cliente',
+            ] as $moduleKey => $moduleLabel) {
+                if (! isset($permissionsByModule[$moduleKey])) {
+                    continue;
+                }
+
+                $consultasChildren[] = [
+                    'key' => 'module-'.$moduleKey,
+                    'label' => $moduleLabel,
+                    'children' => $buildPermissionNodes($permissionsByModule[$moduleKey]),
+                ];
+            }
+
+            if (! empty($consultasChildren)) {
+                $permissionsTree[] = [
+                    'key' => 'module-consultas',
+                    'label' => 'Consultas',
+                    'children' => $consultasChildren,
+                ];
+            }
+
             $settingsChildren = [];
             foreach ([
                 'config' => 'Permissoes',
@@ -1020,7 +1075,7 @@ Route::middleware('auth')->group(function () {
             }
 
             foreach (array_keys($permissionsByModule) as $moduleKey) {
-                if (in_array($moduleKey, ['dashboard', 'config', 'users', 'equipes', 'consulta_v8', 'consulta_presenca'], true)) {
+                if (in_array($moduleKey, ['dashboard', 'config', 'users', 'equipes', 'consulta_v8', 'consulta_presenca', 'consulta_cliente'], true)) {
                     continue;
                 }
 

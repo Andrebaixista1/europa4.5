@@ -1,4 +1,46 @@
 ﻿<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
+    @php
+        $authUser = Auth::user();
+        $authRoleId = $authUser?->role_id !== null ? (int) $authUser->role_id : 0;
+        $authRoleSlug = '';
+
+        if ($authRoleId > 0) {
+            try {
+                $authRoleSlug = strtolower(trim((string) (\Illuminate\Support\Facades\DB::table('roles')
+                    ->where('id', $authRoleId)
+                    ->value('slug') ?? '')));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $isMasterRole = $authRoleSlug === 'master';
+        $allowedPermissionSlugs = [];
+
+        if (! $isMasterRole && $authRoleId > 0) {
+            try {
+                $allowedPermissionSlugs = \Illuminate\Support\Facades\DB::table('role_permissions as rp')
+                    ->join('permissions as p', 'p.id', '=', 'rp.permission_id')
+                    ->where('rp.role_id', $authRoleId)
+                    ->where('rp.allowed', 1)
+                    ->pluck('p.slug')
+                    ->map(fn ($slug) => strtolower(trim((string) $slug)))
+                    ->filter(fn ($slug) => $slug !== '')
+                    ->unique()
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $canViewConsultaCliente = $isMasterRole || in_array('consulta_cliente.view', $allowedPermissionSlugs, true);
+        $canViewConsultas = $isMasterRole || $canViewConsultaCliente;
+        $consultasTriggerClasses = request()->routeIs('consultas.*')
+            ? 'inline-flex items-center gap-1 px-1 pt-1 border-b-2 border-indigo-400 text-sm font-medium leading-5 text-gray-900 focus:outline-none focus:border-indigo-700 transition duration-150 ease-in-out'
+            : 'inline-flex items-center gap-1 px-1 pt-1 border-b-2 border-transparent text-sm font-medium leading-5 text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none focus:text-gray-700 focus:border-gray-300 transition duration-150 ease-in-out';
+    @endphp
+
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-14">
@@ -17,6 +59,26 @@
                         Painel
                     </x-nav-link>
 
+                    @if ($canViewConsultas)
+                        <x-dropdown align="left" width="48">
+                            <x-slot name="trigger">
+                                <button type="button" class="{{ $consultasTriggerClasses }}">
+                                    <span>Consultas</span>
+                                    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.11l3.71-3.88a.75.75 0 111.08 1.04l-4.25 4.44a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                            </x-slot>
+
+                            <x-slot name="content">
+                                @if ($canViewConsultaCliente)
+                                    <x-dropdown-link :href="route('consultas.cliente')">
+                                        Consulta Cliente
+                                    </x-dropdown-link>
+                                @endif
+                            </x-slot>
+                        </x-dropdown>
+                    @endif
                 </div>
             </div>
 
@@ -85,6 +147,12 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 Painel
             </x-responsive-nav-link>
+
+            @if ($canViewConsultaCliente)
+                <x-responsive-nav-link :href="route('consultas.cliente')" :active="request()->routeIs('consultas.*')">
+                    Consulta Cliente
+                </x-responsive-nav-link>
+            @endif
         </div>
 
         <div class="px-4 pb-2">
