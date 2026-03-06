@@ -1,7 +1,7 @@
 ﻿<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
+        <div class="flex justify-between h-14">
             <div class="flex">
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
@@ -45,6 +45,10 @@
                     </x-slot>
 
                     <x-slot name="content">
+                        <x-dropdown-link :href="route('settings.index')">
+                            Configura&ccedil;&otilde;es
+                        </x-dropdown-link>
+
                         <x-dropdown-link :href="route('profile.edit')">
                             Perfil
                         </x-dropdown-link>
@@ -103,6 +107,10 @@
             </div>
 
             <div class="mt-3 space-y-1">
+                <x-responsive-nav-link :href="route('settings.index')">
+                    Configura&ccedil;&otilde;es
+                </x-responsive-nav-link>
+
                 <x-responsive-nav-link :href="route('profile.edit')">
                     Perfil
                 </x-responsive-nav-link>

@@ -155,7 +155,7 @@ html.theme-dark select:focus {
 }
 
 html input[type="checkbox"] {
-    accent-color: #007aff;
+    accent-color: #22c55e !important;
 }
 
 html.theme-dark .lumi-wordmark {
