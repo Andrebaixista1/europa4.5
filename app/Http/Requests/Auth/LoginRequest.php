@@ -151,6 +151,7 @@ class LoginRequest extends FormRequest
                 'connection' => config('database.default'),
                 'database' => config('database.connections.'.config('database.default').'.database'),
                 'host' => config('database.connections.'.config('database.default').'.host'),
+                'error' => mb_substr($e->getMessage(), 0, 220),
             ]);
             return false;
         }
