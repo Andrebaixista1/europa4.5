@@ -100,3 +100,27 @@ Scripts incluidos:
 
 - O model `User` foi adaptado para o schema real (`nome`, `login`, `email`, `password`, `equipe_id`, `role_id`, `ativo`).
 - O campo exibido como `name` no Laravel e mapeado para `nome` na tabela SQL Server.
+
+## Deploy no Vercel
+
+Arquivos de deploy incluidos:
+
+- `vercel.json`
+- `api/index.php`
+
+No painel da Vercel, configure as variaveis de ambiente do Laravel (producao), por exemplo:
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://SEU-DOMINIO.vercel.app
+LOG_CHANNEL=stderr
+
+SESSION_DRIVER=cookie
+CACHE_STORE=array
+QUEUE_CONNECTION=sync
+```
+
+Tambem configure suas variaveis de banco (`DB_*`).
+
+> Importante: se usar SQL Server, confirme no runtime da Vercel se a extensao `pdo_sqlsrv`/`sqlsrv` esta disponivel no projeto.

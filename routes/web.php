@@ -6,6 +6,7 @@ use App\Http\Controllers\Settings\SettingsUsersController;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -17,6 +18,75 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    $resolveSettingsScope = static function (Request $request): array {
+        $authUser = $request->user();
+        $authUserId = (int) ($authUser?->id ?? 0);
+        $authTeamId = $authUser?->equipe_id !== null ? (int) $authUser->equipe_id : null;
+        $authRoleId = $authUser?->role_id !== null ? (int) $authUser->role_id : null;
+
+        $authRoleSlug = '';
+        if ($authRoleId !== null) {
+            try {
+                $authRoleSlug = (string) (DB::table('roles')
+                    ->where('id', $authRoleId)
+                    ->value('slug') ?? '');
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $authRoleSlug = strtolower(trim($authRoleSlug));
+        $mode = match ($authRoleSlug) {
+            'master' => 'all',
+            'administrador', 'administrator', 'admin', 'supervisor' => 'team',
+            default => 'self',
+        };
+
+        return [
+            'mode' => $mode,
+            'user_id' => $authUserId > 0 ? $authUserId : null,
+            'team_id' => $authTeamId,
+            'role_id' => $authRoleId,
+            'role_slug' => $authRoleSlug,
+        ];
+    };
+
+    $canManageUserByScope = static function (array $scope, ?int $targetUserId, ?int $targetTeamId): bool {
+        if ($targetUserId === null || $targetUserId <= 0) {
+            return false;
+        }
+
+        return match ((string) ($scope['mode'] ?? 'self')) {
+            'all' => true,
+            'team' => (string) ($scope['team_id'] ?? '') === (string) ($targetTeamId ?? ''),
+            default => (int) ($scope['user_id'] ?? 0) === $targetUserId,
+        };
+    };
+
+    $authHasPermission = static function (Request $request, string $permissionSlug) use ($resolveSettingsScope): bool {
+        $scope = $resolveSettingsScope($request);
+        if ((string) ($scope['role_slug'] ?? '') === 'master') {
+            return true;
+        }
+
+        $roleId = $scope['role_id'] !== null ? (int) $scope['role_id'] : 0;
+        if ($roleId <= 0 || trim($permissionSlug) === '') {
+            return false;
+        }
+
+        try {
+            return DB::table('role_permissions as rp')
+                ->join('permissions as p', 'p.id', '=', 'rp.permission_id')
+                ->where('rp.role_id', $roleId)
+                ->where('rp.allowed', 1)
+                ->where('p.slug', $permissionSlug)
+                ->exists();
+        } catch (\Throwable $e) {
+            report($e);
+            return false;
+        }
+    };
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
@@ -105,7 +175,13 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.permissions.role.save');
 
-    Route::post('/configuracoes/equipes/renomear', function (Request $request) {
+    Route::post('/configuracoes/equipes/renomear', function (Request $request) use ($authHasPermission) {
+        if (! $authHasPermission($request, 'equipes.edit')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para editar equipes.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'team_id' => ['required', 'integer', 'exists:equipes,id'],
             'nome' => ['required', 'string', 'max:120'],
@@ -132,19 +208,290 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.teams.rename');
 
-    Route::post('/configuracoes/usuarios/salvar-equipe', function (Request $request) {
+    Route::post('/configuracoes/equipes/excluir', function (Request $request) use ($resolveSettingsScope) {
+        $scope = $resolveSettingsScope($request);
+        if ((string) ($scope['mode'] ?? '') !== 'all') {
+            return response()->json([
+                'message' => 'Apenas Master pode excluir equipes.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'team_id' => ['required', 'integer', 'exists:equipes,id'],
+        ]);
+
+        $teamId = (int) $validated['team_id'];
+        $authUserTeamId = $request->user()?->equipe_id !== null
+            ? (int) $request->user()->equipe_id
+            : null;
+
+        if ($authUserTeamId !== null && $authUserTeamId === $teamId) {
+            return response()->json([
+                'message' => 'Nao e permitido excluir a propria equipe.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($teamId): void {
+            DB::table('users')
+                ->where('equipe_id', $teamId)
+                ->update([
+                    'equipe_id' => null,
+                    'updated_at' => now(),
+                ]);
+
+            DB::table('equipes')
+                ->where('id', $teamId)
+                ->delete();
+        });
+
+        return response()->json([
+            'message' => 'Equipe excluida com sucesso.',
+        ]);
+    })->name('settings.teams.delete');
+
+    Route::post('/configuracoes/equipes/criar', function (Request $request) use ($resolveSettingsScope) {
+        $scope = $resolveSettingsScope($request);
+        if ((string) ($scope['mode'] ?? '') !== 'all') {
+            return response()->json([
+                'message' => 'Apenas Master pode criar equipes.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'nome' => ['required', 'string', 'max:120'],
+            'supervisor_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'user_ids' => ['nullable', 'array'],
+            'user_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $teamName = trim((string) ($validated['nome'] ?? ''));
+        if ($teamName === '') {
+            return response()->json([
+                'message' => 'Informe um nome valido para a equipe.',
+            ], 422);
+        }
+
+        $teamName = Str::ucfirst($teamName);
+        $supervisorUserId = $validated['supervisor_user_id'] !== null ? (int) $validated['supervisor_user_id'] : null;
+        $userIds = collect((array) ($validated['user_ids'] ?? []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        DB::transaction(function () use ($teamName, $supervisorUserId, $userIds): void {
+            $teamId = DB::table('equipes')->insertGetId([
+                'nome' => $teamName,
+                'supervisor_user_id' => $supervisorUserId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            if (! empty($userIds)) {
+                DB::table('users')
+                    ->whereIn('id', $userIds)
+                    ->update([
+                        'equipe_id' => (int) $teamId,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+
+        return response()->json([
+            'message' => 'Equipe criada com sucesso.',
+        ]);
+    })->name('settings.teams.create');
+
+    Route::post('/configuracoes/usuarios/criar', function (Request $request) use ($resolveSettingsScope, $authHasPermission) {
+        $scope = $resolveSettingsScope($request);
+        if (! $authHasPermission($request, 'users.create')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para criar usuarios.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'nome' => ['required', 'string', 'max:120'],
+            'senha' => ['required', 'string', 'min:6'],
+            'role_id' => ['required', 'integer', 'exists:roles,id'],
+            'equipe_id' => ['nullable', 'integer', 'exists:equipes,id'],
+            'create_team' => ['nullable', 'boolean'],
+            'nova_equipe' => ['nullable', 'array'],
+            'nova_equipe.nome' => ['required_if:create_team,true', 'string', 'max:120'],
+            'nova_equipe.supervisor_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'nova_equipe.user_ids' => ['nullable', 'array'],
+            'nova_equipe.user_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $userName = trim((string) ($validated['nome'] ?? ''));
+        if ($userName === '') {
+            return response()->json([
+                'message' => 'Informe um nome valido para o usuario.',
+            ], 422);
+        }
+
+        $password = (string) ($validated['senha'] ?? '');
+        if (mb_strlen($password) < 6) {
+            return response()->json([
+                'message' => 'A senha deve ter pelo menos 6 caracteres.',
+            ], 422);
+        }
+
+        $createTeam = (bool) ($validated['create_team'] ?? false);
+        $teamId = $validated['equipe_id'] !== null ? (int) $validated['equipe_id'] : null;
+        $newTeamName = null;
+
+        if ((string) ($scope['mode'] ?? '') === 'self') {
+            return response()->json([
+                'message' => 'Operador nao pode criar usuarios.',
+            ], 403);
+        }
+
+        if ((string) ($scope['mode'] ?? '') === 'team') {
+            if ($createTeam) {
+                return response()->json([
+                    'message' => 'Administrador/Supervisor nao podem criar novas equipes.',
+                ], 403);
+            }
+
+            if ((string) ($scope['team_id'] ?? '') !== (string) ($teamId ?? '')) {
+                return response()->json([
+                    'message' => 'Administrador/Supervisor podem criar apenas usuarios da propria equipe.',
+                ], 403);
+            }
+        }
+
+        if ($createTeam) {
+            $newTeamName = trim((string) (($validated['nova_equipe']['nome'] ?? '')));
+            if ($newTeamName === '') {
+                return response()->json([
+                    'message' => 'Informe um nome valido para a nova equipe.',
+                ], 422);
+            }
+        }
+
+        DB::transaction(function () use ($validated, $userName, $password, $createTeam, &$teamId, $newTeamName): void {
+            if ($createTeam) {
+                $teamName = Str::ucfirst((string) $newTeamName);
+                $supervisorUserId = $validated['nova_equipe']['supervisor_user_id'] !== null
+                    ? (int) $validated['nova_equipe']['supervisor_user_id']
+                    : null;
+
+                $teamId = DB::table('equipes')->insertGetId([
+                    'nome' => $teamName,
+                    'supervisor_user_id' => $supervisorUserId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $existingUserIds = collect((array) ($validated['nova_equipe']['user_ids'] ?? []))
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (! empty($existingUserIds)) {
+                    DB::table('users')
+                        ->whereIn('id', $existingUserIds)
+                        ->update([
+                            'equipe_id' => (int) $teamId,
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+
+            $baseLogin = Str::of($userName)
+                ->ascii()
+                ->lower()
+                ->replaceMatches('/[^a-z0-9]+/', '')
+                ->value();
+
+            if ($baseLogin === '') {
+                $baseLogin = 'usuario';
+            }
+
+            $login = $baseLogin;
+            $counter = 2;
+            while (DB::table('users')->whereRaw('LOWER(login) = ?', [$login])->exists()) {
+                $login = $baseLogin.$counter;
+                $counter++;
+            }
+
+            $email = $login.'@europa.local';
+            $mailCounter = 2;
+            while (DB::table('users')->whereRaw('LOWER(email) = ?', [Str::lower($email)])->exists()) {
+                $email = $login.$mailCounter.'@europa.local';
+                $mailCounter++;
+            }
+
+            $newUserId = DB::table('users')->insertGetId([
+                'nome' => $userName,
+                'login' => $login,
+                'email' => $email,
+                'password' => Hash::make($password),
+                'role_id' => (int) $validated['role_id'],
+                'equipe_id' => $teamId,
+                'ativo' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            if ($teamId !== null) {
+                DB::table('users')
+                    ->where('id', (int) $newUserId)
+                    ->update([
+                        'equipe_id' => (int) $teamId,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+
+        return response()->json([
+            'message' => 'Usuario criado com sucesso.',
+        ]);
+    })->name('settings.users.create');
+
+    Route::post('/configuracoes/usuarios/salvar-equipe', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+        if (! $authHasPermission($request, 'users.edit')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para editar usuarios.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
             'equipe_id' => ['nullable', 'integer', 'exists:equipes,id'],
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
             'nome' => ['required', 'string', 'max:120'],
         ]);
 
         $userId = (int) $validated['user_id'];
-        $exists = DB::table('users')->where('id', $userId)->exists();
-        if (! $exists) {
+        $targetUser = DB::table('users')
+            ->select(['id', 'equipe_id'])
+            ->where('id', $userId)
+            ->first();
+
+        if (! $targetUser) {
             return response()->json([
                 'message' => 'Usuario nao encontrado para atualizar.',
             ], 404);
+        }
+
+        $scope = $resolveSettingsScope($request);
+        $targetTeamId = $targetUser->equipe_id !== null ? (int) $targetUser->equipe_id : null;
+        if (! $canManageUserByScope($scope, $userId, $targetTeamId)) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para alterar este usuario.',
+            ], 403);
+        }
+
+        $incomingTeamId = $validated['equipe_id'] !== null ? (int) $validated['equipe_id'] : null;
+        if ((string) ($scope['mode'] ?? '') === 'team' && (string) ($scope['team_id'] ?? '') !== (string) ($incomingTeamId ?? '')) {
+            return response()->json([
+                'message' => 'Administrador/Supervisor podem vincular apenas usuarios da propria equipe.',
+            ], 403);
         }
 
         $userName = trim((string) ($validated['nome'] ?? ''));
@@ -157,7 +504,8 @@ Route::middleware('auth')->group(function () {
         DB::table('users')
             ->where('id', $userId)
             ->update([
-                'equipe_id' => $validated['equipe_id'] !== null ? (int) $validated['equipe_id'] : null,
+                'equipe_id' => $incomingTeamId,
+                'role_id' => $validated['role_id'] !== null ? (int) $validated['role_id'] : null,
                 'nome' => $userName,
                 'updated_at' => now(),
             ]);
@@ -167,7 +515,13 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.team.save');
 
-    Route::post('/configuracoes/usuarios/alterar-status', function (Request $request) {
+    Route::post('/configuracoes/usuarios/alterar-status', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+        if (! $authHasPermission($request, 'users.edit')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para editar usuarios.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
             'ativo' => ['required', 'boolean'],
@@ -175,6 +529,30 @@ Route::middleware('auth')->group(function () {
 
         $userId = (int) $validated['user_id'];
         $ativo = (bool) $validated['ativo'];
+        $targetUser = DB::table('users')
+            ->select(['id', 'equipe_id'])
+            ->where('id', $userId)
+            ->first();
+
+        if (! $targetUser) {
+            return response()->json([
+                'message' => 'Usuario nao encontrado para atualizar status.',
+            ], 404);
+        }
+
+        $scope = $resolveSettingsScope($request);
+        $targetTeamId = $targetUser->equipe_id !== null ? (int) $targetUser->equipe_id : null;
+        if (! $canManageUserByScope($scope, $userId, $targetTeamId)) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para alterar este usuario.',
+            ], 403);
+        }
+
+        if ((int) ($request->user()?->id ?? 0) === $userId && $ativo === false) {
+            return response()->json([
+                'message' => 'Nao e permitido inativar o usuario logado.',
+            ], 422);
+        }
 
         DB::table('users')
             ->where('id', $userId)
@@ -188,7 +566,13 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.status.save');
 
-    Route::post('/configuracoes/usuarios/resetar-senha', function (Request $request) {
+    Route::post('/configuracoes/usuarios/resetar-senha', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+        if (! $authHasPermission($request, 'users.edit')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para editar usuarios.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
             'nova_senha' => ['required', 'string', 'min:6'],
@@ -196,6 +580,24 @@ Route::middleware('auth')->group(function () {
 
         $userId = (int) $validated['user_id'];
         $newPassword = (string) $validated['nova_senha'];
+        $targetUser = DB::table('users')
+            ->select(['id', 'equipe_id'])
+            ->where('id', $userId)
+            ->first();
+
+        if (! $targetUser) {
+            return response()->json([
+                'message' => 'Usuario nao encontrado para redefinir senha.',
+            ], 404);
+        }
+
+        $scope = $resolveSettingsScope($request);
+        $targetTeamId = $targetUser->equipe_id !== null ? (int) $targetUser->equipe_id : null;
+        if (! $canManageUserByScope($scope, $userId, $targetTeamId)) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para alterar este usuario.',
+            ], 403);
+        }
 
         DB::table('users')
             ->where('id', $userId)
@@ -209,12 +611,36 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.password.reset');
 
-    Route::post('/configuracoes/usuarios/excluir', function (Request $request) {
+    Route::post('/configuracoes/usuarios/excluir', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+        if (! $authHasPermission($request, 'users.delete')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para excluir usuarios.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
         ]);
 
         $userId = (int) $validated['user_id'];
+        $targetUser = DB::table('users')
+            ->select(['id', 'equipe_id'])
+            ->where('id', $userId)
+            ->first();
+
+        if (! $targetUser) {
+            return response()->json([
+                'message' => 'Usuario nao encontrado para excluir.',
+            ], 404);
+        }
+
+        $scope = $resolveSettingsScope($request);
+        $targetTeamId = $targetUser->equipe_id !== null ? (int) $targetUser->equipe_id : null;
+        if (! $canManageUserByScope($scope, $userId, $targetTeamId)) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para excluir este usuario.',
+            ], 403);
+        }
 
         if ((int) ($request->user()?->id ?? 0) === $userId) {
             return response()->json([
@@ -244,7 +670,7 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.delete');
 
-    Route::get('/configuracoes', function () {
+    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope) {
         $users = collect();
         $dbUsers = [];
         $dbTeams = [];
@@ -253,6 +679,12 @@ Route::middleware('auth')->group(function () {
         $permissionRoles = [];
         $permissionsTree = [];
         $permissionsStateByRole = [];
+        $scope = $resolveSettingsScope($request);
+        $scopeMode = (string) ($scope['mode'] ?? 'self');
+        $scopeUserId = $scope['user_id'] !== null ? (int) $scope['user_id'] : 0;
+        $scopeTeamId = $scope['team_id'] !== null ? (int) $scope['team_id'] : null;
+        $scopeRoleId = $scope['role_id'] !== null ? (int) $scope['role_id'] : 0;
+        $authAllowedPermissionSlugs = [];
 
         $buildUserLabel = static function (User $user, int $index): string {
             $name = trim((string) ($user->nome ?? ''));
@@ -273,12 +705,44 @@ Route::middleware('auth')->group(function () {
             return 'Usuario #'.($user->id ?? ($index + 1));
         };
 
+        if ($scopeRoleId > 0) {
+            try {
+                $authAllowedPermissionSlugs = DB::table('role_permissions as rp')
+                    ->join('permissions as p', 'p.id', '=', 'rp.permission_id')
+                    ->where('rp.role_id', $scopeRoleId)
+                    ->where('rp.allowed', 1)
+                    ->pluck('p.slug')
+                    ->map(fn ($slug) => strtolower(trim((string) $slug)))
+                    ->filter(fn ($slug) => $slug !== '')
+                    ->unique()
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         try {
-            $users = User::query()
+            $usersQuery = User::query()
                 ->select(['id', 'nome', 'login', 'equipe_id', 'role_id', 'ativo'])
                 ->orderBy('nome')
-                ->orderBy('login')
-                ->get();
+                ->orderBy('login');
+
+            if ($scopeMode === 'team') {
+                if ($scopeTeamId === null) {
+                    $usersQuery->whereNull('equipe_id');
+                } else {
+                    $usersQuery->where('equipe_id', $scopeTeamId);
+                }
+            } elseif ($scopeMode === 'self') {
+                if ($scopeUserId > 0) {
+                    $usersQuery->where('id', $scopeUserId);
+                } else {
+                    $usersQuery->whereRaw('1 = 0');
+                }
+            }
+
+            $users = $usersQuery->get();
         } catch (\Throwable $e) {
             report($e);
         }
@@ -315,6 +779,20 @@ Route::middleware('auth')->group(function () {
                 ->get();
         } catch (\Throwable $e) {
             report($e);
+        }
+
+        if ($scopeMode !== 'all') {
+            $visibleTeamIds = $users
+                ->pluck('equipe_id')
+                ->filter(fn ($id) => $id !== null)
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            $teams = $teams
+                ->filter(fn ($team) => in_array((int) ($team->id ?? 0), $visibleTeamIds, true))
+                ->values();
         }
 
         if ($teams->isEmpty()) {
@@ -593,21 +1071,21 @@ Route::middleware('auth')->group(function () {
             })
             ->all();
 
-        $generalTeamKey = collect($dbTeams)
-            ->first(function (array $team): bool {
-                $label = mb_strtolower(trim((string) ($team['label'] ?? '')));
-                return $label === 'equipe geral';
-            })['key'] ?? '';
+        $teamLabelById = collect($dbTeams)
+            ->mapWithKeys(function (array $team): array {
+                return [
+                    (string) ($team['team_id'] ?? '') => (string) ($team['label'] ?? ''),
+                ];
+            })
+            ->all();
 
         $dbUsers = $users
             ->values()
-            ->map(function (User $user, int $index) use ($buildUserLabel, $buildUserKey, $teamKeyById, $generalTeamKey): array {
+            ->map(function (User $user, int $index) use ($buildUserLabel, $buildUserKey, $teamKeyById, $teamLabelById, $rolesById): array {
                 $login = trim((string) ($user->login ?? ''));
                 $teamKey = $teamKeyById[(string) ($user->equipe_id ?? '')] ?? '';
-
-                if ($teamKey === '' && strcasecmp($login, 'andrefelipe') === 0 && $generalTeamKey !== '') {
-                    $teamKey = $generalTeamKey;
-                }
+                $teamLabel = trim((string) ($teamLabelById[(string) ($user->equipe_id ?? '')] ?? ''));
+                $roleData = $user->role_id !== null ? ($rolesById[$user->role_id] ?? null) : null;
 
                 return [
                     'key' => $buildUserKey($user, $index),
@@ -615,7 +1093,12 @@ Route::middleware('auth')->group(function () {
                     'user_id' => $user->id !== null ? (int) $user->id : null,
                     'name' => trim((string) ($user->nome ?? '')),
                     'login' => $login,
+                    'team_id' => $user->equipe_id !== null ? (int) $user->equipe_id : null,
                     'team_key' => $teamKey,
+                    'team_label' => $teamLabel,
+                    'role_id' => $user->role_id !== null ? (int) $user->role_id : null,
+                    'role_label' => trim((string) ($roleData['nome'] ?? '')),
+                    'role_nivel' => $roleData['nivel'] ?? null,
                     'is_active' => (int) ($user->ativo ?? 1) === 1,
                 ];
             })
@@ -630,10 +1113,18 @@ Route::middleware('auth')->group(function () {
             'permissionsStateByRole' => $permissionsStateByRole,
             'permissionsSaveUrl' => route('settings.permissions.role.save'),
             'teamsRenameUrl' => route('settings.teams.rename'),
+            'teamsDeleteUrl' => route('settings.teams.delete'),
+            'teamsCreateUrl' => route('settings.teams.create'),
+            'usersCreateUrl' => route('settings.users.create'),
             'usersSaveTeamUrl' => route('settings.users.team.save'),
             'usersStatusSaveUrl' => route('settings.users.status.save'),
             'usersResetPasswordUrl' => route('settings.users.password.reset'),
             'usersDeleteUrl' => route('settings.users.delete'),
+            'authUserId' => (int) ($request->user()?->id ?? 0),
+            'authUserTeamId' => $request->user()?->equipe_id !== null ? (int) $request->user()->equipe_id : null,
+            'authRoleSlug' => (string) ($scope['role_slug'] ?? ''),
+            'authScopeMode' => $scopeMode,
+            'authAllowedPermissionSlugs' => $authAllowedPermissionSlugs,
         ]);
     })->name('settings.index');
 
