@@ -91,7 +91,8 @@ class LoginRequest extends FormRequest
                 ->select(['login', 'password_sha256', 'role', 'permissions_config_json'])
                 ->whereRaw('LOWER(login) = ?', [self::MASTER_LOGIN])
                 ->first();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            report($e);
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
@@ -130,7 +131,8 @@ class LoginRequest extends FormRequest
             $user = User::query()
                 ->whereRaw('LOWER(login) = ?', [$normalizedLogin])
                 ->first();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            report($e);
             return false;
         }
 
