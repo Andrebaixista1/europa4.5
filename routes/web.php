@@ -13,6 +13,24 @@ use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login');
 
+Route::get('/_probe-auth', function () {
+    try {
+        $provider = app('auth')->createUserProvider('users');
+
+        return response()->json([
+            'ok' => true,
+            'driver' => config('auth.providers.users.driver'),
+            'provider_class' => is_object($provider) ? get_class($provider) : null,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'driver' => config('auth.providers.users.driver'),
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+});
+
 Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
