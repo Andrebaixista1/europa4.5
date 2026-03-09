@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'auth_bridge' => [
+        'url' => env('AUTH_BRIDGE_URL', rtrim((string) env('APP_URL', ''), '/').'/api/bridge-auth'),
+        'token' => env('SQL_BRIDGE_TOKEN'),
+        'timeout' => (int) env('AUTH_BRIDGE_TIMEOUT', 8),
+    ],
+
 ];

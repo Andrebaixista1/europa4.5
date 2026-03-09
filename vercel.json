@@ -1,11 +1,18 @@
 {
   "version": 2,
   "functions": {
+    "api/bridge-auth.js": {
+      "runtime": "@vercel/node"
+    },
     "api/index.php": {
       "runtime": "vercel-php@0.7.3"
     }
   },
   "routes": [
+    {
+      "src": "/api/bridge-auth",
+      "dest": "/api/bridge-auth.js"
+    },
     {
       "src": "/build/(.*)",
       "dest": "/public/build/$1"

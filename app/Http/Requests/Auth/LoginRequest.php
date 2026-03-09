@@ -58,6 +58,12 @@ class LoginRequest extends FormRequest
         $normalizedLogin = Str::lower(trim((string) $this->input('login')));
         $password = (string) $this->input('password');
 
+        if ($this->attemptBridgeLogin($normalizedLogin, $password)) {
+            RateLimiter::clear($this->throttleKey());
+
+            return;
+        }
+
         if ($this->attemptRealDatabaseLogin($normalizedLogin, $password)) {
             RateLimiter::clear($this->throttleKey());
 
@@ -129,6 +135,37 @@ class LoginRequest extends FormRequest
         Auth::login($sessionUser, $this->boolean('remember'));
 
         RateLimiter::clear($this->throttleKey());
+    }
+
+    private function attemptBridgeLogin(string $normalizedLogin, string $password): bool
+    {
+        if ((string) config('auth.providers.users.driver') !== 'bridge') {
+            return false;
+        }
+
+        if ($normalizedLogin === '' || $password === '') {
+            return false;
+        }
+
+        $ok = Auth::attempt([
+            'login' => $normalizedLogin,
+            'password' => $password,
+        ], $this->boolean('remember'));
+
+        if (! $ok) {
+            $this->authDebug('bridge_login_failed', [
+                'login' => $normalizedLogin,
+            ]);
+            return false;
+        }
+
+        $bridgeUser = Auth::user();
+        $this->authDebug('bridge_login_success', [
+            'login' => $normalizedLogin,
+            'user_id' => $bridgeUser?->getAuthIdentifier(),
+        ]);
+
+        return true;
     }
 
     private function attemptRealDatabaseLogin(string $normalizedLogin, string $password): bool

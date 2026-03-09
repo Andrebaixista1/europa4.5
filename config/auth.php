@@ -61,8 +61,11 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
+            'driver' => env('AUTH_USERS_PROVIDER', 'eloquent'),
             'model' => env('AUTH_MODEL', App\Models\User::class),
+            'bridge_endpoint' => env('AUTH_BRIDGE_URL'),
+            'bridge_token' => env('SQL_BRIDGE_TOKEN'),
+            'bridge_timeout' => (int) env('AUTH_BRIDGE_TIMEOUT', 8),
         ],
 
         // 'users' => [
