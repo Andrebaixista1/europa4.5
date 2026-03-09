@@ -37,8 +37,8 @@
         $canViewConsultaCliente = $isMasterRole || in_array('consulta_cliente.view', $allowedPermissionSlugs, true);
         $canViewConsultas = $isMasterRole || $canViewConsultaCliente;
         $consultasTriggerClasses = request()->routeIs('consultas.*')
-            ? 'inline-flex items-center gap-1 px-1 pt-1 border-b-2 border-indigo-400 text-sm font-medium leading-5 text-gray-900 focus:outline-none focus:border-indigo-700 transition duration-150 ease-in-out'
-            : 'inline-flex items-center gap-1 px-1 pt-1 border-b-2 border-transparent text-sm font-medium leading-5 text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none focus:text-gray-700 focus:border-gray-300 transition duration-150 ease-in-out';
+            ? 'inline-flex items-center px-1 pt-1 pb-0 border-b-2 border-indigo-400 text-sm font-medium leading-5 text-gray-900 transition duration-150 ease-in-out appearance-none bg-transparent border-0 rounded-none shadow-none focus:outline-none focus:ring-0 focus:border-indigo-700 whitespace-nowrap'
+            : 'inline-flex items-center px-1 pt-1 pb-0 border-b-2 border-transparent text-sm font-medium leading-5 text-gray-500 hover:text-gray-700 hover:border-gray-300 transition duration-150 ease-in-out appearance-none bg-transparent border-0 rounded-none shadow-none focus:outline-none focus:ring-0 focus:text-gray-700 focus:border-gray-300 whitespace-nowrap';
     @endphp
 
     <!-- Primary Navigation Menu -->
@@ -60,24 +60,33 @@
                     </x-nav-link>
 
                     @if ($canViewConsultas)
-                        <x-dropdown align="left" width="48">
-                            <x-slot name="trigger">
-                                <button type="button" class="{{ $consultasTriggerClasses }}">
-                                    <span>Consultas</span>
-                                    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.11l3.71-3.88a.75.75 0 111.08 1.04l-4.25 4.44a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </x-slot>
+                        <div class="relative sm:-my-px sm:flex" x-data="{ open: false }" @click.outside="open = false">
+                            <button type="button" @click="open = ! open" class="{{ $consultasTriggerClasses }}">
+                                <span>Consultas</span>
+                                <svg class="ms-1 h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.11l3.71-3.88a.75.75 0 111.08 1.04l-4.25 4.44a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
 
-                            <x-slot name="content">
-                                @if ($canViewConsultaCliente)
-                                    <x-dropdown-link :href="route('consultas.cliente')">
-                                        Consulta Cliente
-                                    </x-dropdown-link>
-                                @endif
-                            </x-slot>
-                        </x-dropdown>
+                            <div x-show="open"
+                                x-transition:enter="transition ease-out duration-200"
+                                x-transition:enter-start="opacity-0 scale-95"
+                                x-transition:enter-end="opacity-100 scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 scale-100"
+                                x-transition:leave-end="opacity-0 scale-95"
+                                class="absolute z-50 w-48 rounded-md shadow-lg ltr:origin-top-left rtl:origin-top-right"
+                                style="display: none; left: 0; top: calc(100% + 8px);"
+                                @click="open = false">
+                                <div class="rounded-md ring-1 ring-black ring-opacity-5 py-1 bg-white">
+                                    @if ($canViewConsultaCliente)
+                                        <x-dropdown-link :href="route('consultas.cliente')">
+                                            Consulta Cliente
+                                        </x-dropdown-link>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
                     @endif
                 </div>
             </div>

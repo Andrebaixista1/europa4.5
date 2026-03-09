@@ -153,7 +153,7 @@
         }
 
         .settings-table-grid.is-expanded {
-            grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr) minmax(260px, 1fr);
+            grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr) minmax(360px, 1.2fr);
         }
 
         .settings-col {
@@ -357,10 +357,11 @@
 
         .settings-member-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: space-between;
             gap: 0.6rem;
             cursor: pointer;
+            flex-wrap: wrap;
         }
 
         .settings-member-level {
@@ -370,7 +371,9 @@
             padding: 0.12rem 0.35rem;
             font-size: 0.72rem;
             color: var(--settings-muted);
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            max-width: 100%;
         }
 
         .settings-user-action {
@@ -1051,11 +1054,13 @@
                         </div>
 
                         <div>
-                            <label class="settings-filter-label" for="settings-status">Status</label>
-                            <select id="settings-status" class="settings-filter-select" x-model="filterStatus">
-                                <option value="">Todos</option>
-                                <option value="active">Ativo</option>
-                                <option value="inactive">Inativo</option>
+                            <label class="settings-filter-label" for="settings-team-filter">Equipes</label>
+                            <select id="settings-team-filter" class="settings-filter-select" x-model="filterTeamKey">
+                                <option value="">Todas</option>
+                                <option value="__no_team__">Sem equipe</option>
+                                <template x-for="team in teamFilterOptions()" :key="`team-filter-${team.key}`">
+                                    <option :value="team.key" x-text="team.label"></option>
+                                </template>
                             </select>
                         </div>
 
@@ -1078,6 +1083,21 @@
                                     <path d="M7 6l1 14h8l1-14"></path>
                                     <path d="m10 11 4 4"></path>
                                     <path d="m14 11-4 4"></path>
+                                </svg>
+                            </button>
+
+                            <button
+                                type="button"
+                                class="settings-add-btn settings-add-btn--icon"
+                                x-on:click="downloadUsersTable()"
+                                :disabled="filteredUsersForExport().length === 0"
+                                title="Baixar tabela de usuarios"
+                                aria-label="Baixar tabela de usuarios"
+                            >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M12 3v11"></path>
+                                    <path d="m7 11 5 5 5-5"></path>
+                                    <path d="M4 20h16"></path>
                                 </svg>
                             </button>
 
@@ -1897,7 +1917,7 @@
                 usersNameSelection: {},
                 usersRoleSelection: {},
                 filterSearch: '',
-                filterStatus: '',
+                filterTeamKey: '',
                 filterCreatedAt: '',
                 showAddTeamModal: false,
                 creatingTeam: false,
@@ -2106,8 +2126,152 @@
 
                 clearFilters() {
                     this.filterSearch = '';
-                    this.filterStatus = '';
+                    this.filterTeamKey = '';
                     this.filterCreatedAt = '';
+                },
+
+                teamFilterOptions() {
+                    const options = Array.isArray(this.teamOptions) ? this.teamOptions : [];
+
+                    return options
+                        .filter((team) => team && (team.key ?? '') !== '')
+                        .slice()
+                        .sort((a, b) => (a?.label ?? '').toString().localeCompare((b?.label ?? '').toString(), 'pt-BR', { sensitivity: 'base' }));
+                },
+
+                normalizedFilterSearch() {
+                    return (this.filterSearch ?? '').toString().trim().toLowerCase();
+                },
+
+                matchesSearchTerm(item, searchTerm) {
+                    if (searchTerm === '') {
+                        return true;
+                    }
+
+                    const haystack = [
+                        item?.label,
+                        item?.name,
+                        item?.login,
+                        item?.team_label,
+                        item?.role_label,
+                    ]
+                        .map((value) => (value ?? '').toString().toLowerCase());
+
+                    return haystack.some((text) => text.includes(searchTerm));
+                },
+
+                matchesCreatedAtFilter(item) {
+                    const filterDate = (this.filterCreatedAt ?? '').toString().trim();
+                    if (filterDate === '') {
+                        return true;
+                    }
+
+                    const createdAtIso = (item?.created_at_iso ?? '').toString().trim();
+                    return createdAtIso !== '' && createdAtIso === filterDate;
+                },
+
+                matchesTeamFilter(item) {
+                    const teamFilterKey = (this.filterTeamKey ?? '').toString().trim();
+                    if (teamFilterKey === '') {
+                        return true;
+                    }
+
+                    if (teamFilterKey === '__no_team__') {
+                        return ((item?.team_key ?? '').toString().trim() === '')
+                            && (item?.team_id === null || item?.team_id === undefined);
+                    }
+
+                    return (item?.team_key ?? '').toString().trim() === teamFilterKey;
+                },
+
+                userMatchesFilters(item, searchTerm) {
+                    return this.matchesSearchTerm(item, searchTerm)
+                        && this.matchesTeamFilter(item)
+                        && this.matchesCreatedAtFilter(item);
+                },
+
+                teamMatchesFilters(item, searchTerm) {
+                    if (!this.matchesSearchTerm(item, searchTerm)) {
+                        return false;
+                    }
+
+                    const teamFilterKey = (this.filterTeamKey ?? '').toString().trim();
+                    if (teamFilterKey === '') {
+                        return true;
+                    }
+
+                    if (teamFilterKey === '__no_team__') {
+                        return false;
+                    }
+
+                    return (item?.key ?? '').toString().trim() === teamFilterKey;
+                },
+
+                filteredUsersForExport() {
+                    const usersModule = this.usersModule();
+                    const usersItems = Array.isArray(usersModule?.items) ? usersModule.items : [];
+                    const searchTerm = this.normalizedFilterSearch();
+
+                    return usersItems.filter((item) => this.userMatchesFilters(item, searchTerm));
+                },
+
+                formatUserCreatedAt(user) {
+                    const label = (user?.created_at_label ?? '').toString().trim();
+                    if (label !== '') {
+                        return label;
+                    }
+
+                    const iso = (user?.created_at_iso ?? '').toString().trim();
+                    if (iso === '') {
+                        return '';
+                    }
+
+                    const parts = iso.split('-');
+                    if (parts.length === 3) {
+                        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                    }
+
+                    return iso;
+                },
+
+                csvEscape(value) {
+                    const text = (value ?? '').toString();
+                    return `"${text.replace(/"/g, '""')}"`;
+                },
+
+                downloadUsersTable() {
+                    const rows = this.filteredUsersForExport();
+                    if (rows.length === 0) {
+                        this.pushToast('error', 'Nenhum usuario disponivel para exportar com os filtros atuais.');
+                        return;
+                    }
+
+                    const lines = ['nome;data de cadastro;equipe'];
+                    rows.forEach((user) => {
+                        const nome = (user?.name ?? user?.label ?? '').toString().trim();
+                        const dataCadastro = this.formatUserCreatedAt(user);
+                        const equipe = (user?.team_label ?? '').toString().trim() || 'Sem equipe';
+                        lines.push([
+                            this.csvEscape(nome),
+                            this.csvEscape(dataCadastro),
+                            this.csvEscape(equipe),
+                        ].join(';'));
+                    });
+
+                    const csvContent = `\uFEFF${lines.join('\r\n')}`;
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const stamp = new Date().toISOString().slice(0, 10);
+
+                    link.href = url;
+                    link.download = `usuarios_${stamp}.csv`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    this.pushToast('success', 'Tabela de usuarios exportada com sucesso.');
                 },
 
                 normalizeTeamName(name) {
@@ -2390,6 +2554,13 @@
                     this.expandedPageNodes = {};
                 },
 
+                scrollPageToTop() {
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth',
+                    });
+                },
+
                 selectModule(moduleKey) {
                     this.permissionSaveStatus = '';
                     this.permissionSaveMessage = '';
@@ -2419,6 +2590,7 @@
                 },
 
                 selectItem(itemKey) {
+                    const shouldScrollToTop = this.isUsersModule() || this.isTeamsModule();
                     this.permissionSaveStatus = '';
                     this.permissionSaveMessage = '';
                     this.teamSaveStatus = '';
@@ -2443,6 +2615,9 @@
                     if (this.isPermissionsModule()) {
                         this.collapseAllPageNodes();
                     }
+                    if (shouldScrollToTop) {
+                        this.scrollPageToTop();
+                    }
                 },
 
                 isExpanded() {
@@ -2455,7 +2630,26 @@
 
                 activeItems() {
                     const module = this.activeModule();
-                    return module ? module.items : [];
+                    if (!module) {
+                        return [];
+                    }
+
+                    const items = Array.isArray(module.items) ? module.items : [];
+                    const searchTerm = this.normalizedFilterSearch();
+
+                    if (module.key === 'users') {
+                        return items.filter((item) => this.userMatchesFilters(item, searchTerm));
+                    }
+
+                    if (module.key === 'teams') {
+                        return items.filter((item) => this.teamMatchesFilters(item, searchTerm));
+                    }
+
+                    if (searchTerm === '') {
+                        return items;
+                    }
+
+                    return items.filter((item) => this.matchesSearchTerm(item, searchTerm));
                 },
 
                 usersModule() {
@@ -2609,6 +2803,7 @@
                     this.activeItemKey = userKey;
                     this.ensureSelectedItem();
                     this.triggerFan();
+                    this.scrollPageToTop();
                 },
 
                 syncActiveTeamDraft() {

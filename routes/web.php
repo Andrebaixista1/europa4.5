@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
 Route::redirect('/', '/login');
 
@@ -163,17 +164,296 @@ Route::middleware('auth')->group(function () {
         }
     };
 
+    $consultaMacicaByCpf = static function (string $cpfDigits): array {
+        $cpfOnlyDigits = preg_replace('/\D+/', '', $cpfDigits) ?? '';
+        if ($cpfOnlyDigits === '') {
+            return [];
+        }
+
+        $cpfConsulta = str_pad(substr($cpfOnlyDigits, 0, 11), 11, '0', STR_PAD_LEFT);
+
+        $rows = DB::connection('ct_top_sqlsrv')->select(
+            <<<'SQL'
+SELECT TOP (1000)
+      [nb]
+    , [nome_segurado]
+    , [dt_nascimento]
+    , [nu_cpf]
+    , [esp]
+    , [dib]
+    , [ddb]
+    , [vl_beneficio]
+    , [id_banco_pagto]
+    , [id_agencia_banco]
+    , [id_orgao_pagador]
+    , [nu_conta_corrente]
+    , [aps_benef]
+    , [cs_meio_pagto]
+    , [id_banco_empres]
+    , [id_contrato_empres]
+    , [vl_empres]
+    , [comp_ini_desconto]
+    , [comp_fim_desconto]
+    , [quant_parcelas]
+    , [vl_parcela]
+    , [tipo_empres]
+    , [endereco]
+    , [bairro]
+    , [municipio]
+    , [uf]
+    , [cep]
+    , [situacao_empres]
+    , [dt_averbacao_consig]
+    , [idade]
+    , [pagas]
+    , [restantes]
+    , [nb_tratado]
+    , [dt_nascimento_tratado]
+    , [nu_cpf_tratado]
+    , [vl_beneficio_tratado]
+    , [comp_ini_desconto_tratado]
+    , [comp_fim_desconto_tratado]
+    , [quant_parcelas_tratado]
+    , [vl_parcela_tratado]
+    , [vl_empres_tratado]
+    , [data_update]
+    , [nu_cpf_ix]
+    , [nb_ix]
+FROM [MacicaCompleta].[dbo].[consignados_unificados_TEXT]
+WHERE [nu_cpf_ix] = ?
+SQL,
+            [$cpfConsulta]
+        );
+
+        return array_values(array_map(static fn ($row): array => (array) $row, $rows));
+    };
+
+    $consultaEntrantesByCpf = static function (string $cpfDigits): array {
+        $cpfOnlyDigits = preg_replace('/\D+/', '', $cpfDigits) ?? '';
+        if ($cpfOnlyDigits === '') {
+            return [];
+        }
+
+        $cpfConsulta = str_pad(substr($cpfOnlyDigits, 0, 11), 11, '0', STR_PAD_LEFT);
+
+        $rows = DB::connection('ct_top_sqlsrv')->select(
+            <<<'SQL'
+SELECT TOP (1000)
+      [NOME]
+    , [CPF]
+    , [IDADE]
+    , [Data_Nascimento]
+    , [Beneficio]
+    , [CODIGO_ESPECIE]
+    , [DDB]
+    , [Municipio]
+    , [UF]
+    , [VALOR_BENEFICIO]
+    , [MARGEM_RMC]
+    , [MARGEM_DISPONIVEL]
+    , [Margem_RCC]
+    , [Banco]
+    , [Agencia]
+    , [Conta]
+    , [Meio_Pagamento]
+    , [CELULAR1]
+    , [CELULAR2]
+    , [CELULAR3]
+    , [CPF_LIMPO]
+    , [BENEFICIO_LIMPO]
+    , [CELULAR4]
+    , [Data_Lemit]
+    , [valor_liberador_RCC]
+    , [valor_liberador_RMC]
+    , [Total_Valor_Liberado(0.02801)]
+    , [total_cartao]
+    , [Total_Valor_Liberado]
+FROM [Mailing].[dbo].[MAILING_UNIFICADO]
+WHERE [CPF_LIMPO] = ?
+SQL,
+            [$cpfConsulta]
+        );
+
+        return array_values(array_map(static fn ($row): array => (array) $row, $rows));
+    };
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::get('/consultas/cliente', function (Request $request) use ($authHasPermission) {
+    Route::get('/consultas/cliente', function (Request $request) use ($authHasPermission, $consultaMacicaByCpf, $consultaEntrantesByCpf) {
         if (! $authHasPermission($request, 'consulta_cliente.view')) {
             abort(403);
         }
 
-        return view('consultas.cliente');
+        $cpfInput = trim((string) $request->query('cpf', ''));
+        $cpfDigits = preg_replace('/\D+/', '', $cpfInput) ?? '';
+        $consultaModulesInput = trim((string) $request->query('consultas', ''));
+        $allowedModuleKeys = ['macica', 'entrantes', 'consulta_in100', 'presenca', 'hand_mais', 'prata', 'v8'];
+        $moduleLabelMap = [
+            'macica' => 'Maciça',
+            'entrantes' => 'Entrantes',
+            'consulta_in100' => 'IN100 Qualibanking',
+            'presenca' => 'Presença',
+            'hand_mais' => 'Hand+',
+            'prata' => 'Prata',
+            'v8' => 'V8',
+        ];
+        $consultaSelectedModules = collect(explode(',', $consultaModulesInput))
+            ->map(static fn ($item) => strtolower(trim((string) $item)))
+            ->filter(static fn ($item) => $item !== '' && in_array($item, $allowedModuleKeys, true))
+            ->unique()
+            ->values()
+            ->all();
+        $cpfConsulta = '';
+        $consultaError = '';
+        $consultaRows = [];
+        $consultaRaw = null;
+
+        if ($cpfDigits !== '') {
+            if (strlen($cpfDigits) > 11) {
+                $consultaError = 'Informe um CPF valido com ate 11 digitos.';
+            } else {
+                $cpfConsulta = str_pad($cpfDigits, 11, '0', STR_PAD_LEFT);
+            }
+        }
+
+        if ($cpfConsulta !== '' && $consultaError === '' && $consultaRows === []) {
+            if ($consultaSelectedModules === []) {
+                $consultaError = 'Selecione pelo menos uma consulta antes de consultar.';
+            }
+        }
+
+        if ($cpfConsulta !== '' && $consultaError === '' && $consultaRows === []) {
+            try {
+                $rowsByModule = [];
+                $notImplementedModules = [];
+
+                foreach ($consultaSelectedModules as $moduleKey) {
+                    $moduleLabel = $moduleLabelMap[$moduleKey] ?? $moduleKey;
+                    $moduleRows = [];
+
+                    if ($moduleKey === 'macica') {
+                        $moduleRows = $consultaMacicaByCpf($cpfConsulta);
+                    } elseif ($moduleKey === 'entrantes') {
+                        $moduleRows = $consultaEntrantesByCpf($cpfConsulta);
+                    } else {
+                        $notImplementedModules[] = $moduleKey;
+                    }
+
+                    if ($moduleRows !== []) {
+                        $rowsByModule[$moduleKey] = array_values(array_map(static function ($row) use ($moduleLabel): array {
+                            $arrayRow = (array) $row;
+                            $arrayRow['_modulo_consulta'] = $moduleLabel;
+
+                            return $arrayRow;
+                        }, $moduleRows));
+                    } else {
+                        $rowsByModule[$moduleKey] = [];
+                    }
+                }
+
+                $consultaRows = collect($rowsByModule)
+                    ->flatten(1)
+                    ->values()
+                    ->all();
+
+                $consultaRaw = [
+                    'source' => 'ct_top_sqlsrv.multi',
+                    'cpf' => $cpfConsulta,
+                    'selected_modules' => $consultaSelectedModules,
+                    'not_implemented_modules' => $notImplementedModules,
+                    'rows_by_module' => $rowsByModule,
+                    'total' => count($consultaRows),
+                    'rows' => $consultaRows,
+                ];
+            } catch (\Throwable $e) {
+                report($e);
+                $consultaError = 'Nao foi possivel concluir a consulta agora.';
+            }
+        }
+
+        return view('consultas.cliente', [
+            'cpfInput' => $cpfInput,
+            'cpfConsulta' => $cpfConsulta,
+            'consultaRows' => $consultaRows,
+            'consultaError' => $consultaError,
+            'consultaRaw' => $consultaRaw,
+            'consultaSelectedModules' => $consultaSelectedModules,
+        ]);
     })->name('consultas.cliente');
+
+    Route::get('/api/consultas/macica', function (Request $request) use ($authHasPermission, $consultaMacicaByCpf) {
+        if (! $authHasPermission($request, 'consulta_cliente.view')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para consultar Macica.',
+            ], 403);
+        }
+
+        $cpfInput = trim((string) $request->query('cpf', ''));
+        $cpfDigits = preg_replace('/\D+/', '', $cpfInput) ?? '';
+
+        if ($cpfDigits === '' || strlen($cpfDigits) > 11) {
+            return response()->json([
+                'message' => 'Informe um CPF valido com ate 11 digitos.',
+            ], 422);
+        }
+
+        $cpfConsulta = str_pad($cpfDigits, 11, '0', STR_PAD_LEFT);
+
+        try {
+            $rows = $consultaMacicaByCpf($cpfConsulta);
+
+            return response()->json([
+                'source' => 'ct_top_sqlsrv.macica',
+                'cpf' => $cpfConsulta,
+                'total' => count($rows),
+                'rows' => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Nao foi possivel consultar Macica agora.',
+            ], 500);
+        }
+    })->name('api.consultas.macica');
+
+    Route::get('/api/consultas/entrantes', function (Request $request) use ($authHasPermission, $consultaEntrantesByCpf) {
+        if (! $authHasPermission($request, 'consulta_cliente.view')) {
+            return response()->json([
+                'message' => 'Voce nao tem permissao para consultar Entrantes.',
+            ], 403);
+        }
+
+        $cpfInput = trim((string) $request->query('cpf', ''));
+        $cpfDigits = preg_replace('/\D+/', '', $cpfInput) ?? '';
+
+        if ($cpfDigits === '' || strlen($cpfDigits) > 11) {
+            return response()->json([
+                'message' => 'Informe um CPF valido com ate 11 digitos.',
+            ], 422);
+        }
+
+        $cpfConsulta = str_pad($cpfDigits, 11, '0', STR_PAD_LEFT);
+
+        try {
+            $rows = $consultaEntrantesByCpf($cpfConsulta);
+
+            return response()->json([
+                'source' => 'ct_top_sqlsrv.entrantes',
+                'cpf' => $cpfConsulta,
+                'total' => count($rows),
+                'rows' => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Nao foi possivel consultar Entrantes agora.',
+            ], 500);
+        }
+    })->name('api.consultas.entrantes');
 
     Route::post('/configuracoes/permissoes/salvar', function (Request $request) use ($ensureSettingsPermissionsCatalog) {
         $ensureSettingsPermissionsCatalog();
@@ -851,8 +1131,16 @@ Route::middleware('auth')->group(function () {
         }
 
         try {
+            $usersSelectColumns = ['id', 'nome', 'login', 'equipe_id', 'role_id', 'ativo'];
+            if (Schema::hasColumn('users', 'created_at')) {
+                $usersSelectColumns[] = 'created_at';
+            }
+            if (Schema::hasColumn('users', 'data_criacao')) {
+                $usersSelectColumns[] = 'data_criacao';
+            }
+
             $usersQuery = User::query()
-                ->select(['id', 'nome', 'login', 'equipe_id', 'role_id', 'ativo'])
+                ->select($usersSelectColumns)
                 ->orderBy('nome')
                 ->orderBy('login');
 
@@ -1237,6 +1525,22 @@ Route::middleware('auth')->group(function () {
                 $teamKey = $teamKeyById[(string) ($user->equipe_id ?? '')] ?? '';
                 $teamLabel = trim((string) ($teamLabelById[(string) ($user->equipe_id ?? '')] ?? ''));
                 $roleData = $user->role_id !== null ? ($rolesById[$user->role_id] ?? null) : null;
+                $createdAtValue = $user->data_criacao ?? $user->created_at ?? null;
+                $createdAtIso = null;
+                $createdAtLabel = '';
+
+                if ($createdAtValue instanceof \DateTimeInterface) {
+                    $createdAtIso = $createdAtValue->format('Y-m-d');
+                    $createdAtLabel = $createdAtValue->format('d/m/Y');
+                } elseif ($createdAtValue !== null && trim((string) $createdAtValue) !== '') {
+                    try {
+                        $createdAtParsed = \Illuminate\Support\Carbon::parse((string) $createdAtValue);
+                        $createdAtIso = $createdAtParsed->format('Y-m-d');
+                        $createdAtLabel = $createdAtParsed->format('d/m/Y');
+                    } catch (\Throwable $e) {
+                        $createdAtLabel = trim((string) $createdAtValue);
+                    }
+                }
 
                 return [
                     'key' => $buildUserKey($user, $index),
@@ -1251,6 +1555,8 @@ Route::middleware('auth')->group(function () {
                     'role_label' => trim((string) ($roleData['nome'] ?? '')),
                     'role_nivel' => $roleData['nivel'] ?? null,
                     'is_active' => (int) ($user->ativo ?? 1) === 1,
+                    'created_at_iso' => $createdAtIso,
+                    'created_at_label' => $createdAtLabel,
                 ];
             })
             ->all();

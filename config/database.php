@@ -127,6 +127,20 @@ return [
             'trust_server_certificate' => true,
         ],
 
+        'ct_top_sqlsrv' => [
+            'driver' => env('CT_TOP_DB_CONNECTION', 'sqlsrv'),
+            'host' => env('CT_TOP_DB_HOST', '127.0.0.1'),
+            'port' => env('CT_TOP_DB_PORT', '1433'),
+            'database' => env('CT_TOP_DB_DATABASE', 'master'),
+            'username' => env('CT_TOP_DB_USERNAME', ''),
+            'password' => env('CT_TOP_DB_PASSWORD', ''),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'encrypt' => (bool) env('CT_TOP_DB_ENCRYPT', true),
+            'trust_server_certificate' => (bool) env('CT_TOP_DB_TRUST_SERVER_CERTIFICATE', true),
+        ],
+
     ],
 
     /*
