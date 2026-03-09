@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login');
@@ -18,14 +19,54 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
-    $resolveSettingsScope = static function (Request $request): array {
+    $usingBridgeProvider = static function (): bool {
+        return strtolower(trim((string) config('auth.providers.users.driver', ''))) === 'bridge';
+    };
+
+    $callSettingsBridge = static function (string $action, array $payload = []) use ($usingBridgeProvider): ?array {
+        if (! $usingBridgeProvider()) {
+            return null;
+        }
+
+        $endpoint = trim((string) config('services.auth_bridge.url', ''));
+        $token = trim((string) config('services.auth_bridge.token', ''));
+        $timeout = max(1, (int) config('services.auth_bridge.timeout', 8));
+
+        if ($endpoint === '' || $token === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->withHeaders([
+                    'X-Bridge-Token' => $token,
+                ])
+                ->post($endpoint, array_merge(['action' => $action], $payload));
+        } catch (\Throwable $e) {
+            report($e);
+            return null;
+        }
+
+        if (! $response->ok()) {
+            return null;
+        }
+
+        $json = $response->json();
+
+        return is_array($json) ? $json : null;
+    };
+
+    $resolveSettingsScope = static function (Request $request) use ($usingBridgeProvider): array {
         $authUser = $request->user();
         $authUserId = (int) ($authUser?->id ?? 0);
         $authTeamId = $authUser?->equipe_id !== null ? (int) $authUser->equipe_id : null;
         $authRoleId = $authUser?->role_id !== null ? (int) $authUser->role_id : null;
 
         $authRoleSlug = '';
-        if ($authRoleId !== null) {
+        if ($usingBridgeProvider()) {
+            $authRoleSlug = (string) ($authUser?->role_slug ?? '');
+        } elseif ($authRoleId !== null) {
             try {
                 $authRoleSlug = (string) (DB::table('roles')
                     ->where('id', $authRoleId)
@@ -63,7 +104,7 @@ Route::middleware('auth')->group(function () {
         };
     };
 
-    $authHasPermission = static function (Request $request, string $permissionSlug) use ($resolveSettingsScope): bool {
+    $authHasPermission = static function (Request $request, string $permissionSlug) use ($resolveSettingsScope, $callSettingsBridge, $usingBridgeProvider): bool {
         $scope = $resolveSettingsScope($request);
         if ((string) ($scope['role_slug'] ?? '') === 'master') {
             return true;
@@ -72,6 +113,16 @@ Route::middleware('auth')->group(function () {
         $roleId = $scope['role_id'] !== null ? (int) $scope['role_id'] : 0;
         if ($roleId <= 0 || trim($permissionSlug) === '') {
             return false;
+        }
+
+        if ($usingBridgeProvider()) {
+            $payload = $callSettingsBridge('has_permission', [
+                'role_id' => $roleId,
+                'role_slug' => (string) ($scope['role_slug'] ?? ''),
+                'permission_slug' => trim($permissionSlug),
+            ]);
+
+            return (bool) ($payload['ok'] ?? false) && (bool) ($payload['allowed'] ?? false);
         }
 
         try {
@@ -87,7 +138,12 @@ Route::middleware('auth')->group(function () {
         }
     };
 
-    $ensureSettingsPermissionsCatalog = static function (): void {
+    $ensureSettingsPermissionsCatalog = static function () use ($callSettingsBridge, $usingBridgeProvider): void {
+        if ($usingBridgeProvider()) {
+            $callSettingsBridge('ensure_permissions_catalog');
+            return;
+        }
+
         $requiredPermissions = [
             [
                 'slug' => 'consulta_cliente.view',
@@ -700,7 +756,47 @@ Route::middleware('auth')->group(function () {
         ]);
     })->name('settings.users.delete');
 
-    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope, $ensureSettingsPermissionsCatalog) {
+    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope, $ensureSettingsPermissionsCatalog, $callSettingsBridge, $usingBridgeProvider) {
+        if ($usingBridgeProvider()) {
+            $bridgePayload = $callSettingsBridge('settings_index', [
+                'auth_user' => [
+                    'id' => (int) ($request->user()?->id ?? 0),
+                    'team_id' => $request->user()?->equipe_id !== null ? (int) $request->user()->equipe_id : null,
+                    'role_id' => $request->user()?->role_id !== null ? (int) $request->user()->role_id : null,
+                    'role_slug' => (string) ($request->user()?->role_slug ?? ''),
+                ],
+            ]);
+
+            if ((bool) ($bridgePayload['ok'] ?? false) && isset($bridgePayload['payload']) && is_array($bridgePayload['payload'])) {
+                $payload = $bridgePayload['payload'];
+
+                return view('settings.index', [
+                    'dbUsers' => (array) ($payload['dbUsers'] ?? []),
+                    'dbTeams' => (array) ($payload['dbTeams'] ?? []),
+                    'teamMembersByTeam' => (array) ($payload['teamMembersByTeam'] ?? []),
+                    'permissionRoles' => (array) ($payload['permissionRoles'] ?? []),
+                    'permissionsTree' => (array) ($payload['permissionsTree'] ?? []),
+                    'permissionsStateByRole' => (array) ($payload['permissionsStateByRole'] ?? []),
+                    'permissionsSaveUrl' => route('settings.permissions.role.save'),
+                    'teamsRenameUrl' => route('settings.teams.rename'),
+                    'teamsDeleteUrl' => route('settings.teams.delete'),
+                    'teamsCreateUrl' => route('settings.teams.create'),
+                    'usersCreateUrl' => route('settings.users.create'),
+                    'usersSaveTeamUrl' => route('settings.users.team.save'),
+                    'usersStatusSaveUrl' => route('settings.users.status.save'),
+                    'usersResetPasswordUrl' => route('settings.users.password.reset'),
+                    'usersDeleteUrl' => route('settings.users.delete'),
+                    'authUserId' => (int) ($payload['authUserId'] ?? 0),
+                    'authUserTeamId' => array_key_exists('authUserTeamId', $payload) ? $payload['authUserTeamId'] : null,
+                    'authRoleSlug' => (string) ($payload['authRoleSlug'] ?? ''),
+                    'authScopeMode' => (string) ($payload['authScopeMode'] ?? 'self'),
+                    'authAllowedPermissionSlugs' => (array) ($payload['authAllowedPermissionSlugs'] ?? []),
+                ]);
+            }
+
+            abort(500, 'Falha ao carregar configuracoes pela bridge.');
+        }
+
         $ensureSettingsPermissionsCatalog();
 
         $users = collect();

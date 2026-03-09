@@ -148,6 +148,10 @@ class BridgeUserProvider implements UserProvider
             'email' => (string) ($rawUser['email'] ?? ($login.'@europa.local')),
             'equipe_id' => $rawUser['equipe_id'] ?? null,
             'role_id' => $rawUser['role_id'] ?? null,
+            'role_slug' => (string) ($rawUser['role_slug'] ?? ''),
+            'role_nome' => (string) ($rawUser['role_nome'] ?? ''),
+            'role_nivel' => $rawUser['role_nivel'] ?? null,
+            'team_name' => (string) ($rawUser['team_name'] ?? ''),
             'ativo' => (int) ($rawUser['ativo'] ?? 1),
             'remember_token' => $rawUser['remember_token'] ?? null,
         ]);
