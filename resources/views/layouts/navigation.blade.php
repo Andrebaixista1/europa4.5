@@ -15,6 +15,9 @@
         }
 
         $isMasterRole = $authRoleSlug === 'master';
+        if (session('is_demo_admin')) {
+            $isMasterRole = true;
+        }
         $allowedPermissionSlugs = [];
 
         if (! $isMasterRole && $authRoleId > 0) {
