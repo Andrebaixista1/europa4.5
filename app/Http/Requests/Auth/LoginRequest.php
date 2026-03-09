@@ -139,7 +139,8 @@ class LoginRequest extends FormRequest
 
     private function attemptBridgeLogin(string $normalizedLogin, string $password): bool
     {
-        if ((string) config('auth.providers.users.driver') !== 'bridge') {
+        $providerDriver = Str::lower(trim((string) config('auth.providers.users.driver', '')));
+        if ($providerDriver !== 'bridge') {
             return false;
         }
 

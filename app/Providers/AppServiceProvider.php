@@ -26,8 +26,8 @@ class AppServiceProvider extends ServiceProvider
         Auth::provider('bridge', function ($app, array $config): BridgeUserProvider {
             $serviceConfig = (array) config('services.auth_bridge', []);
 
-            $endpoint = (string) ($config['bridge_endpoint'] ?? $serviceConfig['url'] ?? '');
-            $token = (string) ($config['bridge_token'] ?? $serviceConfig['token'] ?? '');
+            $endpoint = trim((string) ($config['bridge_endpoint'] ?? $serviceConfig['url'] ?? ''));
+            $token = trim((string) ($config['bridge_token'] ?? $serviceConfig['token'] ?? ''));
             $timeout = (int) ($config['bridge_timeout'] ?? $serviceConfig['timeout'] ?? 8);
 
             if (! Str::startsWith($endpoint, ['http://', 'https://'])) {
