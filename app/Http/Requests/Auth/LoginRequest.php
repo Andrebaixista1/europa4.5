@@ -54,6 +54,7 @@ class LoginRequest extends FormRequest
     public function authenticate(): void
     {
         $this->ensureIsNotRateLimited();
+        $this->session()->forget('is_demo_admin');
 
         $normalizedLogin = Str::lower(trim((string) $this->input('login')));
         $password = (string) $this->input('password');
@@ -257,10 +258,14 @@ class LoginRequest extends FormRequest
 
     private function attemptEnvDemoLogin(string $normalizedLogin, string $password): bool
     {
+        $demoAdminLogin = Str::lower(trim((string) env('DEMO_ADMIN_LOGIN', 'admin.demo')));
+        $demoAdminName = trim((string) env('DEMO_ADMIN_NAME', 'Admin Demo'));
+
         $credentialPairs = [
             [env('DEMO_LOGIN', ''), env('DEMO_PASSWORD', '')],
             [env('DEMO_LOGIN_2', ''), env('DEMO_PASSWORD_2', '')],
             [env('DEMO_LOGIN_3', ''), env('DEMO_PASSWORD_3', '')],
+            [env('DEMO_ADMIN_LOGIN', ''), env('DEMO_ADMIN_PASSWORD', '')],
         ];
 
         foreach ($credentialPairs as [$envLoginRaw, $envPasswordRaw]) {
@@ -289,11 +294,28 @@ class LoginRequest extends FormRequest
                 continue;
             }
 
-            $sessionUser->name = $envLogin;
+            $isDemoAdmin = $demoAdminLogin !== '' && hash_equals($demoAdminLogin, $envLogin);
+            $masterRoleId = null;
+
+            if ($isDemoAdmin) {
+                try {
+                    $masterRoleId = DB::table('roles')
+                        ->whereRaw('LOWER(slug) = ?', ['master'])
+                        ->value('id');
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
+            $sessionUser->name = $isDemoAdmin ? ($demoAdminName !== '' ? $demoAdminName : $envLogin) : $envLogin;
             $sessionUser->login = $sessionUser->login ?: $envLogin;
             $sessionUser->email = $sessionUser->email ?: ($envLogin.'@demo.local');
             $sessionUser->equipe_id = $sessionUser->equipe_id ?: 1;
-            $sessionUser->role_id = $sessionUser->role_id ?: (Str::lower($envLogin) === self::MASTER_LOGIN ? 1 : 3);
+            if ($isDemoAdmin) {
+                $sessionUser->role_id = $masterRoleId !== null ? (int) $masterRoleId : ($sessionUser->role_id ?: 1);
+            } else {
+                $sessionUser->role_id = $sessionUser->role_id ?: (Str::lower($envLogin) === self::MASTER_LOGIN ? 1 : 3);
+            }
             $sessionUser->ativo = $sessionUser->ativo ?? 1;
 
             // Mantem a senha local caso ela ja tenha sido alterada pelo usuario.
@@ -304,6 +326,7 @@ class LoginRequest extends FormRequest
             $sessionUser->save();
 
             Auth::login($sessionUser, $this->boolean('remember'));
+            $this->session()->put('is_demo_admin', $isDemoAdmin);
 
             return true;
         }

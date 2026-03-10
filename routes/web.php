@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -14,6 +15,156 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
 Route::redirect('/', '/login');
+
+Route::get('/api/front/csrf-token', function () {
+    return response()->json([
+        'csrf_token' => csrf_token(),
+    ]);
+})->name('api.front.csrf');
+
+Route::post('/api/front/login', function (Request $request) {
+    $validated = $request->validate([
+        'login' => ['required', 'string'],
+        'password' => ['required', 'string'],
+        'remember' => ['nullable', 'boolean'],
+    ]);
+
+    $remember = (bool) ($validated['remember'] ?? false);
+    $normalizedLogin = Str::lower(trim((string) $validated['login']));
+    $password = (string) $validated['password'];
+
+    $authenticated = Auth::attempt([
+        'login' => trim((string) $validated['login']),
+        'password' => $password,
+    ], $remember);
+
+    if (! $authenticated) {
+        $demoAdminLogin = Str::lower(trim((string) env('DEMO_ADMIN_LOGIN', 'admin.demo')));
+        $demoAdminName = trim((string) env('DEMO_ADMIN_NAME', 'Admin Demo'));
+        $credentialPairs = [
+            [env('DEMO_LOGIN', ''), env('DEMO_PASSWORD', '')],
+            [env('DEMO_LOGIN_2', ''), env('DEMO_PASSWORD_2', '')],
+            [env('DEMO_LOGIN_3', ''), env('DEMO_PASSWORD_3', '')],
+            [env('DEMO_ADMIN_LOGIN', ''), env('DEMO_ADMIN_PASSWORD', '')],
+        ];
+
+        foreach ($credentialPairs as [$envLoginRaw, $envPasswordRaw]) {
+            $envLogin = Str::lower(trim((string) $envLoginRaw));
+            $envPassword = (string) $envPasswordRaw;
+
+            if ($envLogin === '' || $envPassword === '') {
+                continue;
+            }
+
+            if (! hash_equals($envLogin, $normalizedLogin)) {
+                continue;
+            }
+
+            $sessionUser = User::query()
+                ->whereRaw('LOWER(login) = ?', [$envLogin])
+                ->orWhere('email', $envLogin.'@demo.local')
+                ->first() ?? new User();
+
+            $matchesLocalHash = $sessionUser->exists
+                && is_string($sessionUser->password ?? null)
+                && $sessionUser->password !== ''
+                && Hash::check($password, (string) $sessionUser->password);
+            $matchesEnv = hash_equals($envPassword, $password);
+
+            if (! $matchesLocalHash && ! $matchesEnv) {
+                continue;
+            }
+
+            $isDemoAdmin = $demoAdminLogin !== '' && hash_equals($demoAdminLogin, $envLogin);
+            $masterRoleId = null;
+
+            if ($isDemoAdmin) {
+                try {
+                    $masterRoleId = DB::table('roles')
+                        ->whereRaw('LOWER(slug) = ?', ['master'])
+                        ->value('id');
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
+            $sessionUser->name = $isDemoAdmin ? ($demoAdminName !== '' ? $demoAdminName : $envLogin) : $envLogin;
+            $sessionUser->login = $sessionUser->login ?: $envLogin;
+            $sessionUser->email = $sessionUser->email ?: ($envLogin.'@demo.local');
+            $sessionUser->equipe_id = $sessionUser->equipe_id ?: 1;
+
+            if ($isDemoAdmin) {
+                $sessionUser->role_id = $masterRoleId !== null ? (int) $masterRoleId : ($sessionUser->role_id ?: 1);
+            } else {
+                $sessionUser->role_id = $sessionUser->role_id ?: 3;
+            }
+
+            $sessionUser->ativo = $sessionUser->ativo ?? 1;
+
+            if (! $sessionUser->exists || empty($sessionUser->password)) {
+                $sessionUser->password = $password;
+            }
+
+            $sessionUser->save();
+
+            Auth::login($sessionUser, $remember);
+            $request->session()->put('is_demo_admin', $isDemoAdmin);
+            $authenticated = true;
+
+            break;
+        }
+    } else {
+        $request->session()->forget('is_demo_admin');
+    }
+
+    if (! $authenticated) {
+        return response()->json([
+            'message' => 'Credenciais invalidas.',
+        ], 422);
+    }
+
+    $request->session()->regenerate();
+
+    $user = $request->user();
+
+    return response()->json([
+        'message' => 'Login realizado com sucesso.',
+        'user' => [
+            'id' => (int) ($user?->id ?? 0),
+            'name' => (string) ($user?->name ?? ''),
+            'email' => (string) ($user?->email ?? ''),
+            'login' => (string) ($user?->login ?? ''),
+        ],
+    ]);
+})->middleware('guest')->name('api.front.login');
+
+Route::middleware('auth')->group(function () {
+    Route::get('/api/front/me', function (Request $request) {
+        $user = $request->user();
+
+        return response()->json([
+            'user' => [
+                'id' => (int) ($user?->id ?? 0),
+                'name' => (string) ($user?->name ?? ''),
+                'email' => (string) ($user?->email ?? ''),
+                'login' => (string) ($user?->login ?? ''),
+                'equipe_id' => $user?->equipe_id !== null ? (int) $user->equipe_id : null,
+                'role_id' => $user?->role_id !== null ? (int) $user->role_id : null,
+            ],
+        ]);
+    })->name('api.front.me');
+
+    Route::post('/api/front/logout', function (Request $request) {
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json([
+            'message' => 'Logout realizado com sucesso.',
+        ]);
+    })->name('api.front.logout');
+});
 
 Route::get('/dashboard', function () {
     return view('dashboard');
@@ -93,6 +244,33 @@ Route::middleware('auth')->group(function () {
         ];
     };
 
+    $resolveDemoAdminLogin = static function (): string {
+        return Str::lower(trim((string) env('DEMO_ADMIN_LOGIN', 'admin.demo')));
+    };
+
+    $isDemoAdminRequest = static function (Request $request) use ($resolveDemoAdminLogin): bool {
+        $demoAdminLogin = $resolveDemoAdminLogin();
+        if ($demoAdminLogin === '') {
+            return false;
+        }
+
+        if ((bool) $request->session()->get('is_demo_admin', false)) {
+            return true;
+        }
+
+        $authUser = $request->user();
+        $login = Str::lower(trim((string) ($authUser?->login ?? $authUser?->name ?? '')));
+
+        return $login !== '' && hash_equals($demoAdminLogin, $login);
+    };
+
+    $demoNoopResponse = static function (string $message = 'Modo demo: acao simulada. Nenhuma alteracao foi salva.') {
+        return response()->json([
+            'message' => $message,
+            'demo' => true,
+        ]);
+    };
+
     $canManageUserByScope = static function (array $scope, ?int $targetUserId, ?int $targetTeamId): bool {
         if ($targetUserId === null || $targetUserId <= 0) {
             return false;
@@ -105,7 +283,11 @@ Route::middleware('auth')->group(function () {
         };
     };
 
-    $authHasPermission = static function (Request $request, string $permissionSlug) use ($resolveSettingsScope, $callSettingsBridge, $usingBridgeProvider): bool {
+    $authHasPermission = static function (Request $request, string $permissionSlug) use ($resolveSettingsScope, $callSettingsBridge, $usingBridgeProvider, $isDemoAdminRequest): bool {
+        if ($isDemoAdminRequest($request)) {
+            return true;
+        }
+
         $scope = $resolveSettingsScope($request);
         if ((string) ($scope['role_slug'] ?? '') === 'master') {
             return true;
@@ -455,7 +637,11 @@ SQL,
         }
     })->name('api.consultas.entrantes');
 
-    Route::post('/configuracoes/permissoes/salvar', function (Request $request) use ($ensureSettingsPermissionsCatalog) {
+    Route::post('/configuracoes/permissoes/salvar', function (Request $request) use ($ensureSettingsPermissionsCatalog, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: permissoes simuladas com sucesso.');
+        }
+
         $ensureSettingsPermissionsCatalog();
 
         $validated = $request->validate([
@@ -541,7 +727,11 @@ SQL,
         ]);
     })->name('settings.permissions.role.save');
 
-    Route::post('/configuracoes/equipes/renomear', function (Request $request) use ($authHasPermission) {
+    Route::post('/configuracoes/equipes/renomear', function (Request $request) use ($authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: renomeacao de equipe simulada.');
+        }
+
         if (! $authHasPermission($request, 'equipes.edit')) {
             return response()->json([
                 'message' => 'Voce nao tem permissao para editar equipes.',
@@ -574,7 +764,11 @@ SQL,
         ]);
     })->name('settings.teams.rename');
 
-    Route::post('/configuracoes/equipes/excluir', function (Request $request) use ($resolveSettingsScope) {
+    Route::post('/configuracoes/equipes/excluir', function (Request $request) use ($resolveSettingsScope, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: exclusao de equipe simulada.');
+        }
+
         $scope = $resolveSettingsScope($request);
         if ((string) ($scope['mode'] ?? '') !== 'all') {
             return response()->json([
@@ -615,7 +809,11 @@ SQL,
         ]);
     })->name('settings.teams.delete');
 
-    Route::post('/configuracoes/equipes/criar', function (Request $request) use ($resolveSettingsScope) {
+    Route::post('/configuracoes/equipes/criar', function (Request $request) use ($resolveSettingsScope, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: criacao de equipe simulada.');
+        }
+
         $scope = $resolveSettingsScope($request);
         if ((string) ($scope['mode'] ?? '') !== 'all') {
             return response()->json([
@@ -669,7 +867,11 @@ SQL,
         ]);
     })->name('settings.teams.create');
 
-    Route::post('/configuracoes/usuarios/criar', function (Request $request) use ($resolveSettingsScope, $authHasPermission) {
+    Route::post('/configuracoes/usuarios/criar', function (Request $request) use ($resolveSettingsScope, $authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: criacao de usuario simulada.');
+        }
+
         $scope = $resolveSettingsScope($request);
         if (! $authHasPermission($request, 'users.create')) {
             return response()->json([
@@ -819,7 +1021,11 @@ SQL,
         ]);
     })->name('settings.users.create');
 
-    Route::post('/configuracoes/usuarios/salvar-equipe', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+    Route::post('/configuracoes/usuarios/salvar-equipe', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: atualizacao de usuario simulada.');
+        }
+
         if (! $authHasPermission($request, 'users.edit')) {
             return response()->json([
                 'message' => 'Voce nao tem permissao para editar usuarios.',
@@ -881,7 +1087,11 @@ SQL,
         ]);
     })->name('settings.users.team.save');
 
-    Route::post('/configuracoes/usuarios/alterar-status', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+    Route::post('/configuracoes/usuarios/alterar-status', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: alteracao de status simulada.');
+        }
+
         if (! $authHasPermission($request, 'users.edit')) {
             return response()->json([
                 'message' => 'Voce nao tem permissao para editar usuarios.',
@@ -932,7 +1142,11 @@ SQL,
         ]);
     })->name('settings.users.status.save');
 
-    Route::post('/configuracoes/usuarios/resetar-senha', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+    Route::post('/configuracoes/usuarios/resetar-senha', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: reset de senha simulado.');
+        }
+
         if (! $authHasPermission($request, 'users.edit')) {
             return response()->json([
                 'message' => 'Voce nao tem permissao para editar usuarios.',
@@ -977,7 +1191,11 @@ SQL,
         ]);
     })->name('settings.users.password.reset');
 
-    Route::post('/configuracoes/usuarios/excluir', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission) {
+    Route::post('/configuracoes/usuarios/excluir', function (Request $request) use ($resolveSettingsScope, $canManageUserByScope, $authHasPermission, $isDemoAdminRequest, $demoNoopResponse) {
+        if ($isDemoAdminRequest($request)) {
+            return $demoNoopResponse('Modo demo: exclusao de usuario simulada.');
+        }
+
         if (! $authHasPermission($request, 'users.delete')) {
             return response()->json([
                 'message' => 'Voce nao tem permissao para excluir usuarios.',
@@ -1036,7 +1254,276 @@ SQL,
         ]);
     })->name('settings.users.delete');
 
-    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope, $ensureSettingsPermissionsCatalog, $callSettingsBridge, $usingBridgeProvider) {
+    Route::get('/configuracoes', function (Request $request) use ($resolveSettingsScope, $ensureSettingsPermissionsCatalog, $callSettingsBridge, $usingBridgeProvider, $isDemoAdminRequest) {
+        if ($isDemoAdminRequest($request)) {
+            $demoPermissionRoles = [
+                ['key' => 'role-1', 'label' => 'Master', 'role_id' => 1, 'slug' => 'master', 'nivel' => 100],
+                ['key' => 'role-2', 'label' => 'Administrador', 'role_id' => 2, 'slug' => 'administrador', 'nivel' => 80],
+                ['key' => 'role-3', 'label' => 'Supervisor', 'role_id' => 3, 'slug' => 'supervisor', 'nivel' => 50],
+                ['key' => 'role-4', 'label' => 'Operador', 'role_id' => 4, 'slug' => 'operador', 'nivel' => 10],
+            ];
+
+            $demoTeams = [
+                ['key' => 'team-11', 'label' => 'Equipe Comercial', 'team_id' => 11],
+                ['key' => 'team-12', 'label' => 'Equipe Operacional', 'team_id' => 12],
+                ['key' => 'team-13', 'label' => 'Equipe Qualidade', 'team_id' => 13],
+            ];
+
+            $demoUsers = [
+                [
+                    'key' => 'user-1001',
+                    'label' => 'Admin Demo (admindemo)',
+                    'user_id' => 1001,
+                    'name' => 'Admin Demo',
+                    'login' => 'admindemo',
+                    'team_id' => 11,
+                    'team_key' => 'team-11',
+                    'team_label' => 'Equipe Comercial',
+                    'role_id' => 1,
+                    'role_label' => 'Master',
+                    'role_nivel' => 100,
+                    'is_active' => true,
+                    'created_at_iso' => '2026-01-15',
+                    'created_at_label' => '15/01/2026',
+                ],
+                [
+                    'key' => 'user-1002',
+                    'label' => 'Bruna Araujo (brunaaraujo)',
+                    'user_id' => 1002,
+                    'name' => 'Bruna Araujo',
+                    'login' => 'brunaaraujo',
+                    'team_id' => 11,
+                    'team_key' => 'team-11',
+                    'team_label' => 'Equipe Comercial',
+                    'role_id' => 2,
+                    'role_label' => 'Administrador',
+                    'role_nivel' => 80,
+                    'is_active' => true,
+                    'created_at_iso' => '2026-01-20',
+                    'created_at_label' => '20/01/2026',
+                ],
+                [
+                    'key' => 'user-1003',
+                    'label' => 'Carlos Sousa (carlossousa)',
+                    'user_id' => 1003,
+                    'name' => 'Carlos Sousa',
+                    'login' => 'carlossousa',
+                    'team_id' => 12,
+                    'team_key' => 'team-12',
+                    'team_label' => 'Equipe Operacional',
+                    'role_id' => 3,
+                    'role_label' => 'Supervisor',
+                    'role_nivel' => 50,
+                    'is_active' => true,
+                    'created_at_iso' => '2026-02-03',
+                    'created_at_label' => '03/02/2026',
+                ],
+                [
+                    'key' => 'user-1004',
+                    'label' => 'Daniel Lima (daniellima)',
+                    'user_id' => 1004,
+                    'name' => 'Daniel Lima',
+                    'login' => 'daniellima',
+                    'team_id' => 12,
+                    'team_key' => 'team-12',
+                    'team_label' => 'Equipe Operacional',
+                    'role_id' => 4,
+                    'role_label' => 'Operador',
+                    'role_nivel' => 10,
+                    'is_active' => true,
+                    'created_at_iso' => '2026-02-10',
+                    'created_at_label' => '10/02/2026',
+                ],
+                [
+                    'key' => 'user-1005',
+                    'label' => 'Elisa Martins (elisamartins)',
+                    'user_id' => 1005,
+                    'name' => 'Elisa Martins',
+                    'login' => 'elisamartins',
+                    'team_id' => 13,
+                    'team_key' => 'team-13',
+                    'team_label' => 'Equipe Qualidade',
+                    'role_id' => 2,
+                    'role_label' => 'Administrador',
+                    'role_nivel' => 80,
+                    'is_active' => false,
+                    'created_at_iso' => '2026-02-18',
+                    'created_at_label' => '18/02/2026',
+                ],
+            ];
+
+            $demoTeamMembersByTeam = [
+                'team-11' => [
+                    ['key' => 'member-1001', 'userKey' => 'user-1001', 'label' => 'Admin Demo (admindemo)', 'permissionLevel' => 'Master (Nivel 100)'],
+                    ['key' => 'member-1002', 'userKey' => 'user-1002', 'label' => 'Bruna Araujo (brunaaraujo)', 'permissionLevel' => 'Administrador (Nivel 80)'],
+                ],
+                'team-12' => [
+                    ['key' => 'member-1003', 'userKey' => 'user-1003', 'label' => 'Carlos Sousa (carlossousa)', 'permissionLevel' => 'Supervisor (Nivel 50)'],
+                    ['key' => 'member-1004', 'userKey' => 'user-1004', 'label' => 'Daniel Lima (daniellima)', 'permissionLevel' => 'Operador (Nivel 10)'],
+                ],
+                'team-13' => [
+                    ['key' => 'member-1005', 'userKey' => 'user-1005', 'label' => 'Elisa Martins (elisamartins)', 'permissionLevel' => 'Administrador (Nivel 80)'],
+                ],
+            ];
+
+            $demoPermissionsTree = [
+                [
+                    'key' => 'module-dashboard',
+                    'label' => 'Painel',
+                    'children' => [
+                        ['key' => 'perm-100', 'label' => 'Ver', 'permission_slug' => 'dashboard.view'],
+                    ],
+                ],
+                [
+                    'key' => 'module-consultas',
+                    'label' => 'Consultas',
+                    'children' => [
+                        [
+                            'key' => 'module-consulta_cliente',
+                            'label' => 'Consulta Cliente',
+                            'children' => [
+                                ['key' => 'perm-101', 'label' => 'Ver', 'permission_slug' => 'consulta_cliente.view'],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'key' => 'module-configuracoes',
+                    'label' => 'Configuracoes',
+                    'children' => [
+                        [
+                            'key' => 'module-config',
+                            'label' => 'Permissoes',
+                            'children' => [
+                                ['key' => 'perm-102', 'label' => 'Ver', 'permission_slug' => 'config.view'],
+                                ['key' => 'perm-103', 'label' => 'Editar', 'permission_slug' => 'config.edit'],
+                            ],
+                        ],
+                        [
+                            'key' => 'module-users',
+                            'label' => 'Usuarios',
+                            'children' => [
+                                ['key' => 'perm-104', 'label' => 'Ver', 'permission_slug' => 'users.view'],
+                                ['key' => 'perm-105', 'label' => 'Criar', 'permission_slug' => 'users.create'],
+                                ['key' => 'perm-106', 'label' => 'Editar', 'permission_slug' => 'users.edit'],
+                                ['key' => 'perm-107', 'label' => 'Excluir', 'permission_slug' => 'users.delete'],
+                            ],
+                        ],
+                        [
+                            'key' => 'module-equipes',
+                            'label' => 'Equipes',
+                            'children' => [
+                                ['key' => 'perm-108', 'label' => 'Ver', 'permission_slug' => 'equipes.view'],
+                                ['key' => 'perm-109', 'label' => 'Criar', 'permission_slug' => 'equipes.create'],
+                                ['key' => 'perm-110', 'label' => 'Editar', 'permission_slug' => 'equipes.edit'],
+                                ['key' => 'perm-111', 'label' => 'Excluir', 'permission_slug' => 'equipes.delete'],
+                            ],
+                        ],
+                        [
+                            'key' => 'module-cadastro-api',
+                            'label' => 'Cadastro API',
+                            'children' => [
+                                [
+                                    'key' => 'module-consulta_v8',
+                                    'label' => 'Consulta V8',
+                                    'children' => [
+                                        ['key' => 'perm-112', 'label' => 'Ver', 'permission_slug' => 'consulta_v8.view'],
+                                    ],
+                                ],
+                                [
+                                    'key' => 'module-consulta_presenca',
+                                    'label' => 'Consulta Presenca',
+                                    'children' => [
+                                        ['key' => 'perm-113', 'label' => 'Ver', 'permission_slug' => 'consulta_presenca.view'],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ];
+
+            $allDemoPermissionKeys = [];
+            $collectPermissionKeys = static function (array $nodes) use (&$collectPermissionKeys, &$allDemoPermissionKeys): void {
+                foreach ($nodes as $node) {
+                    $nodeKey = (string) ($node['key'] ?? '');
+                    if (str_starts_with($nodeKey, 'perm-')) {
+                        $allDemoPermissionKeys[] = $nodeKey;
+                    }
+
+                    $children = $node['children'] ?? [];
+                    if (is_array($children) && $children !== []) {
+                        $collectPermissionKeys($children);
+                    }
+                }
+            };
+            $collectPermissionKeys($demoPermissionsTree);
+            $allDemoPermissionKeys = array_values(array_unique($allDemoPermissionKeys));
+
+            $demoPermissionsStateByRole = [];
+            foreach ($demoPermissionRoles as $demoRole) {
+                $selectionKey = 'permissions:'.(string) ($demoRole['key'] ?? '');
+                $isMaster = strtolower((string) ($demoRole['slug'] ?? '')) === 'master';
+                $isAdmin = strtolower((string) ($demoRole['slug'] ?? '')) === 'administrador';
+                $isSupervisor = strtolower((string) ($demoRole['slug'] ?? '')) === 'supervisor';
+
+                $demoPermissionsStateByRole[$selectionKey] = [];
+                foreach ($allDemoPermissionKeys as $permissionKey) {
+                    if ($isMaster || $isAdmin) {
+                        $demoPermissionsStateByRole[$selectionKey][$permissionKey] = true;
+                        continue;
+                    }
+
+                    if ($isSupervisor) {
+                        $demoPermissionsStateByRole[$selectionKey][$permissionKey] = in_array($permissionKey, ['perm-100', 'perm-101', 'perm-104', 'perm-106', 'perm-108', 'perm-110'], true);
+                        continue;
+                    }
+
+                    $demoPermissionsStateByRole[$selectionKey][$permissionKey] = in_array($permissionKey, ['perm-100', 'perm-101'], true);
+                }
+            }
+
+            $demoAllowedPermissionSlugs = [
+                'dashboard.view',
+                'consulta_cliente.view',
+                'config.view',
+                'config.edit',
+                'users.view',
+                'users.create',
+                'users.edit',
+                'users.delete',
+                'equipes.view',
+                'equipes.create',
+                'equipes.edit',
+                'equipes.delete',
+                'consulta_v8.view',
+                'consulta_presenca.view',
+            ];
+
+            return view('settings.index', [
+                'dbUsers' => $demoUsers,
+                'dbTeams' => $demoTeams,
+                'teamMembersByTeam' => $demoTeamMembersByTeam,
+                'permissionRoles' => $demoPermissionRoles,
+                'permissionsTree' => $demoPermissionsTree,
+                'permissionsStateByRole' => $demoPermissionsStateByRole,
+                'permissionsSaveUrl' => route('settings.permissions.role.save'),
+                'teamsRenameUrl' => route('settings.teams.rename'),
+                'teamsDeleteUrl' => route('settings.teams.delete'),
+                'teamsCreateUrl' => route('settings.teams.create'),
+                'usersCreateUrl' => route('settings.users.create'),
+                'usersSaveTeamUrl' => route('settings.users.team.save'),
+                'usersStatusSaveUrl' => route('settings.users.status.save'),
+                'usersResetPasswordUrl' => route('settings.users.password.reset'),
+                'usersDeleteUrl' => route('settings.users.delete'),
+                'authUserId' => (int) ($request->user()?->id ?? 0),
+                'authUserTeamId' => 11,
+                'authRoleSlug' => 'master',
+                'authScopeMode' => 'all',
+                'authAllowedPermissionSlugs' => $demoAllowedPermissionSlugs,
+            ]);
+        }
+
         if ($usingBridgeProvider()) {
             $bridgePayload = $callSettingsBridge('settings_index', [
                 'auth_user' => [
