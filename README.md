@@ -1,126 +1,32 @@
-﻿# Europa 4.5
+# Europa 4.5 (Ruby + Sinatra)
 
-Base Laravel (clone visual do `luminarisai-v2`) adaptada para o projeto **Europa 4.5**.
+Copia do front do Europa 4 com design atualizado, mantendo a paleta principal e reutilizando os mesmos endpoints da API Laravel.
 
-## Status atual
+## Requisitos
 
-- Branding atualizado para `Europa 4.5` (logo + titulos).
-- Tema ajustado para acento azul `#007AFF` (claro/escuro).
-- Navegacao de `Configuracoes` removida do menu.
-- Login em PT-BR.
-- Perfil (`/profile`) salvando no SQL Server real (`europa45.dbo.users`).
-- Login local compativel com:
-  - usuarios reais na tabela `users` (senha `bcrypt`)
-  - credenciais demo por `.env` (para testes)
+- Ruby 3.x
+- Bundler
 
-## Stack
-
-- PHP 8.2+
-- Laravel 12
-- Blade + Tailwind CSS
-- Vite
-- SQL Server (`sqlsrv` / `pdo_sqlsrv`)
-
-## Requisitos locais (Windows/WAMP)
-
-- PHP 8.2 (WAMP)
-- Extensoes PHP:
-  - `pdo_sqlsrv`
-  - `sqlsrv`
-- ODBC Driver 17 ou 18 for SQL Server
-
-## Configuracao local
-
-1. Instalar dependencias:
+## Como executar
 
 ```bash
-composer install
-npm install
+bundle install
+set API_BASE_URL=http://localhost:8000/api
+bundle exec ruby app.rb
 ```
 
-2. Preparar ambiente:
+Acesse: `http://localhost:4567`
 
-```bash
-copy .env.example .env
-php artisan key:generate
-```
+## Variaveis
 
-3. Configurar banco SQL Server no `.env` (exemplo):
+- `API_BASE_URL` (opcional): base da API do Europa 4.
+  - Default: `http://localhost:8000/api`
+- `PORT` (opcional): porta do Sinatra.
+- `BIND` (opcional): host de bind do Sinatra.
 
-```env
-DB_CONNECTION=sqlsrv
-DB_HOST=177.153.62.236
-DB_PORT=1433
-DB_DATABASE=europa45
-DB_USERNAME=SEU_USUARIO
-DB_PASSWORD=SUA_SENHA
-DB_ENCRYPT=true
-DB_TRUST_SERVER_CERTIFICATE=true
+## Endpoints consumidos pelo front
 
-SESSION_DRIVER=file
-CACHE_STORE=file
-QUEUE_CONNECTION=sync
-```
-
-4. Compilar assets:
-
-```bash
-npm run build
-```
-
-5. Rodar:
-
-```bash
-php artisan optimize:clear
-php artisan serve
-```
-
-## Login
-
-- O projeto pode autenticar com usuario real (`dbo.users`) usando:
-  - `login`
-  - `password` (`bcrypt`)
-- Tambem aceita logins demo via `.env` (para teste local), por exemplo:
-
-```env
-DEMO_LOGIN=admin
-DEMO_PASSWORD=admin
-```
-
-## Banco `europa45` (RBAC)
-
-Scripts incluidos:
-
-- `database/sql/bootstrap_rbac_europa45.sql`
-  - cria tabelas de RBAC (`users`, `roles`, `permissions`, etc.) e seed inicial
-- `database/sql/patch_users_compat.sql`
-  - adiciona colunas de compatibilidade do Laravel (`remember_token`, `email_verified_at`) em `dbo.users`
-
-## Observacoes
-
-- O model `User` foi adaptado para o schema real (`nome`, `login`, `email`, `password`, `equipe_id`, `role_id`, `ativo`).
-- O campo exibido como `name` no Laravel e mapeado para `nome` na tabela SQL Server.
-
-## Deploy no Vercel
-
-Arquivos de deploy incluidos:
-
-- `vercel.json`
-- `api/index.php`
-
-No painel da Vercel, configure as variaveis de ambiente do Laravel (producao), por exemplo:
-
-```env
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://SEU-DOMINIO.vercel.app
-LOG_CHANNEL=stderr
-
-SESSION_DRIVER=cookie
-CACHE_STORE=array
-QUEUE_CONNECTION=sync
-```
-
-Tambem configure suas variaveis de banco (`DB_*`).
-
-> Importante: se usar SQL Server, confirme no runtime da Vercel se a extensao `pdo_sqlsrv`/`sqlsrv` esta disponivel no projeto.
+- `/health-consult`
+- `/dashboard/fila/in100`
+- `/dashboard/saldos/{handmais,v8,presenca,in100,prata}`
+- `/dashboard/consultas/{handmais,v8,presenca,in100,prata}`

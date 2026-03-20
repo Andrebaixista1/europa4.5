@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Europa 4.5</title>
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <%= yield %>
+    <script>
+      window.EUROPA45 = { apiBaseUrl: "<%= api_base_url %>" };
+    </script>
+    <script src="/app.js"></script>
+  </body>
+  </html>

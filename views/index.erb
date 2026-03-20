@@ -1,0 +1,65 @@
+<main class="page">
+  <section class="hero">
+    <p class="eyebrow">Europa 4.5</p>
+    <h1>Monitoramento e operacoes em tempo real</h1>
+    <p class="subtitle">
+      Interface nova, paleta preservada, consumindo os mesmos endpoints da API do Europa 4.
+    </p>
+    <div class="hero-actions">
+      <button id="refreshButton" class="btn btn-primary">Atualizar agora</button>
+      <span id="lastUpdate" class="muted">Ultima atualizacao: --</span>
+    </div>
+  </section>
+
+  <section class="grid grid-4" id="summaryGrid">
+    <article class="card stat">
+      <h2>Health</h2>
+      <p id="healthValue" class="value">--</p>
+      <small class="muted">/health-consult</small>
+    </article>
+    <article class="card stat">
+      <h2>Fila IN100</h2>
+      <p id="filaIn100Value" class="value">--</p>
+      <small class="muted">/dashboard/fila/in100</small>
+    </article>
+    <article class="card stat">
+      <h2>Saldos (5 servicos)</h2>
+      <p id="saldosCountValue" class="value">--</p>
+      <small class="muted">/dashboard/saldos/*</small>
+    </article>
+    <article class="card stat">
+      <h2>Consultas (5 servicos)</h2>
+      <p id="consultasCountValue" class="value">--</p>
+      <small class="muted">/dashboard/consultas/*</small>
+    </article>
+  </section>
+
+  <section class="grid grid-2">
+    <article class="card">
+      <header class="card-head">
+        <h3>Status dos endpoints</h3>
+      </header>
+      <div id="endpointStatus" class="status-list"></div>
+    </article>
+    <article class="card">
+      <header class="card-head">
+        <h3>Preview de resposta</h3>
+      </header>
+      <pre id="payloadPreview" class="code-block">Aguardando atualizacao...</pre>
+    </article>
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <h3>Configuracao</h3>
+    </header>
+    <div class="config-row">
+      <label for="apiBaseUrlInput">Base da API</label>
+      <input id="apiBaseUrlInput" type="text" />
+      <button id="saveApiBaseUrlButton" class="btn">Salvar</button>
+    </div>
+    <p class="muted small">
+      Exemplo local Laravel: <code>http://localhost:8000/api</code>
+    </p>
+  </section>
+</main>
